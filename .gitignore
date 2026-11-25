@@ -10,3 +10,7 @@
 /.ssh/
 
 # fsd 模块有独立 .gitignore，覆盖其 build 与 3rdparty 源码
+
+# Python
+__pycache__/
+*.pyc
