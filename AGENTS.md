@@ -81,4 +81,4 @@ ssh "$BOARD_HOST" "git clone https://github.com/guoyulong1/horizon-ota.git /home
 
 - `main` 保持可构建；功能走 feature 分支 + PR；CI 跑构建 + `--self-test`，merge 前必须绿。
 - `docs/OTA.md` 是 OTA 端到端作业书；模块行为与其冲突时，先对齐文档再改。
-- 模块之间不互相 import；跨模块契约（发布清单格式）以 `docs/OTA.md` 为准。
+- **模块独立、可单独部署**：发布端（`pack/`、`ota-sign`）跑在服务器/CI/离线签名机，设备端（`fsd/`、`verify/`、`agent/`）跑在固件本机，二者互不依赖；跨模块只通过发布清单 JSON 契约通信，**`pack` 不得引用 `fsd` 头文件**。
