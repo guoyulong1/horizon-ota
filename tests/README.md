@@ -1,23 +1,28 @@
 # tests
 
-集成测试：在本地 HTTPS 服务器上验证下载模块的安全行为。
+集成测试。
 
 ## 结构
 
-- `tests/integration/`：本地 HTTPS + 自签 CA + Range 服务器，驱动 `fsd` 二进制。见 [integration/README.md](integration/README.md)。
+- `tests/integration/run.sh`：驱动 `fsd` 二进制，验证下载行为（T1/T2/T3/T5/T6）。
+- `tests/integration/m1-e2e.sh`：M1 端到端（`ota-pack` → `ota-sign` → 本地 HTTPS → `ota-fetch` 验签 + 下载 + 篡改拒绝）。
+- `tests/integration/serve.py`：支持 Range 的本地 HTTPS 测试服务器。
 
 ## 运行
 
 ```bash
-tests/integration/run.sh                 # 自动构建 fsd 再测
-tests/integration/run.sh --fsd <binary>  # 用现成二进制
+tests/integration/run.sh                 # fsd 下载行为（自动构建 fsd）
+tests/integration/m1-e2e.sh              # M1 全链路（自动聚合构建后测试）
+tests/integration/m1-e2e.sh --bin-dir <dir>   # 用现成二进制
 ```
 
-运行环境：Linux（板载 / WSL2 / CI），需要 `openssl`、`python3`、`cmake`、`g++`、`curl`。
+运行环境：Linux（板载 / WSL2 / CI），需要 `openssl`、`python3`、`curl`，构建时另需 `cmake`、`g++`。
 
 ## 状态
 
-基础 harness 已提供（T1/T2/T3/T5/T6），已在地平线 X3 板载（ARM64 / Ubuntu，Python 3.10 / OpenSSL 3.0）实测通过（PASS=9 FAIL=0）。T4/T7、弱网、签名 e2e 待补。
+- `run.sh`：在地平线 X3 板载（ARM64 / Ubuntu，Python 3.10 / OpenSSL 3.0）实测通过（PASS=9 FAIL=0）。
+- `m1-e2e.sh`：在地平线 X3 板载实测通过（PASS=8 FAIL=0）。
+- 待补：T4/T7、弱网（`tc netem`）、签名/清单的更多边界用例。
 
 ## 参考
 
