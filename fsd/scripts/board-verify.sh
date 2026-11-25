@@ -2,13 +2,14 @@
 # board-verify.sh —— 真机验证（地平线X3 板载构建 + 自检）
 # 用法: ./fsd/scripts/board-verify.sh（从任意目录执行均可）
 # 环境变量:
-#   BOARD_HOST      默认 root@192.168.31.35
+#   BOARD_HOST      必填，目标板 SSH 地址，如 root@<board-ip>
 #   BOARD_REPO_DIR  板子上 monorepo 路径，默认 /home/root/workspace/horizon-ota
 # 前提: 已配好免密（.ssh/id_ed25519），且板子上已克隆本 monorepo。
 set -euo pipefail
 cd "$(dirname "$0")/../.."   # -> monorepo 根
 
-HOST="${BOARD_HOST:-root@192.168.31.35}"
+: "${BOARD_HOST:?请设置 BOARD_HOST=root@<board-ip>}"
+HOST="$BOARD_HOST"
 REPO_DIR="${BOARD_REPO_DIR:-/home/root/workspace/horizon-ota}"
 SSH_KEY="$(pwd)/.ssh/id_ed25519"
 KNOWN_HOSTS="$(pwd)/.ssh/known_hosts"

@@ -54,23 +54,27 @@ cmake --build build
 
 ### 目标板访问
 
-- SSH：`root@192.168.31.35:22`
-- 免密私钥：`.ssh/id_ed25519`（已 gitignore）
-- 非交互登录：
+**板子地址不写进仓库**（本仓库公开）。用环境变量提供：
+
+| 变量 | 含义 |
+|---|---|
+| `BOARD_HOST` | 目标板 SSH 地址，如 `root@<board-ip>`（必填） |
+| `BOARD_REPO_DIR` | 板子上 monorepo 路径，默认 `/home/root/workspace/horizon-ota` |
 
 ```bash
+export BOARD_HOST="root@<board-ip>"
 ssh -i .ssh/id_ed25519 \
     -o UserKnownHostsFile=.ssh/known_hosts \
     -o StrictHostKeyChecking=accept-new \
-    root@192.168.31.35 "uname -a"
+    "$BOARD_HOST" "uname -a"
 ```
 
-> 本机 `~/.ssh/known_hosts` 在工作区之外，写入会被拦；用工作区内的 `-o UserKnownHostsFile=.ssh/known_hosts`。
+> 私钥在 `.ssh/`（已 gitignore），**不要提交**；`known_hosts` 用工作区内的，避免写 `~/.ssh`。
 
-首次在板子上准备仓库（板子能访问 GitHub 时）：
+首次在板子上准备仓库：
 
 ```bash
-ssh root@192.168.31.35 "git clone https://github.com/guoyulong1/horizon-ota.git /home/root/workspace/horizon-ota"
+ssh "$BOARD_HOST" "git clone https://github.com/guoyulong1/horizon-ota.git /home/root/workspace/horizon-ota"
 ```
 
 ## 仓库约定
