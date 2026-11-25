@@ -2,6 +2,13 @@
 /build/
 /out/
 
+# OTA 产物与密钥（本机/服务器，不入库）
+/releases/
+/build-pack/
+/build-verify/
+*.pem
+*.sig
+
 # 编辑器 / 系统
 .DS_Store
 *.log

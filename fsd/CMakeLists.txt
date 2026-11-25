@@ -10,7 +10,6 @@ project(firmware_secure_download
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
-set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
@@ -24,7 +23,9 @@ if(FSD_JOBS EQUAL 0)
   set(FSD_JOBS 1)
 endif()
 
-set(FSD_TP_ROOT "${CMAKE_SOURCE_DIR}/3rdparty")
+# 用 CMAKE_CURRENT_SOURCE_DIR（而非 CMAKE_SOURCE_DIR），使 fsd 既能独立构建，
+# 也能作为本 monorepo 的子目录被 add_subdirectory 进来。
+set(FSD_TP_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/3rdparty")
 set(FSD_TP_INSTALL "${CMAKE_BINARY_DIR}/3rdparty-install")
 
 foreach(pkg openssl curl)
@@ -176,6 +177,6 @@ target_compile_options(firmware_secure_download PRIVATE ${FSD_WARNINGS})
 if(CMAKE_EXPORT_COMPILE_COMMANDS)
   file(CREATE_LINK
     "${CMAKE_BINARY_DIR}/compile_commands.json"
-    "${CMAKE_SOURCE_DIR}/compile_commands.json"
+    "${CMAKE_CURRENT_SOURCE_DIR}/compile_commands.json"
     SYMBOLIC)
 endif()

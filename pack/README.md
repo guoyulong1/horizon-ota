@@ -1,20 +1,51 @@
 # pack
 
-打包 + 离线签名工具：把一次构建的产物整理成可发布的目录。
+发布端：把一次构建的产物整理成**待签名的发布目录**，并用离线私钥签名。
 
-## 职责
+> **只依赖 OpenSSL（EVP SHA-256 / Ed25519）与 nlohmann/json，不依赖 fsd。**
+> pack 最终部署在服务器 / CI / 离线签名机，fsd 在设备本机，二者独立。
 
-- 收集组件（内核、dtb、rootfs），计算 SHA-256 与 `release_id`
-- 生成发布清单 `manifest.json`（字段见 `docs/OTA.md` 2.3）
-- 校验输入合法性（版本号、硬件兼容 ID、必填字段）
-- 输出发布目录：`releases/<型号>/<版本>/<release_id>/`
-- 签名由离线机完成，产出 `manifest.json.sig`（Ed25519，64 字节）
+## 构建
 
-## 状态
+```bash
+cmake -S pack -B build-pack
+cmake --build build-pack
+```
 
-待实现（M1）。
+依赖：系统 OpenSSL（开发包）+ vendored `3rdparty/nlohmann/json.hpp`（默认路径，可用 `-DOTA_NLOHMANN_DIR=...` 覆盖）。
 
-## 参考
+## ota-pack
 
-- 流程与契约：`docs/OTA.md` 第 2 章
-- 下载端参考实现：[fsd](../fsd/)
+```bash
+ota-pack --images output/images \
+         --model demo-board --version 1.2.3 --dtb demo-board.dtb \
+         --security-version 5 --min-version-code 10000 \
+         --hardware-compat "example,demo-board" \
+         --hardware-compat "example,demo-board-revb" \
+         --output releases-root
+```
+
+产出：
+
+```
+<output>/releases/<model>/<version>/<release_id>/
+├── manifest.json
+└── files/{Image, <dtb>, rootfs.squashfs}
+```
+
+字段与目录布局见 `docs/OTA.md` 2.2 / 2.3。
+
+## ota-sign（离线机）
+
+```bash
+ota-sign --manifest <release>/manifest.json --key private.pem \
+         --output <release>/manifest.json.sig
+# 私钥也可用 OTA_PRIVATE_KEY 环境变量提供
+```
+
+签名覆盖清单**原始字节**（64 字节 Ed25519 签名）；清单一旦签名不能再改，包括改一个空格。
+
+## 安全
+
+- 私钥只在离线机，**绝不入库**（`.gitignore` 已忽略 `*.pem`、`/releases/`、`*.sig`）。
+- `manifest.json.sig` 由发布流程摆渡，不随源码入库。
