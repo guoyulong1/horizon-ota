@@ -16,6 +16,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <optional>
 #include <string>
 
@@ -23,6 +24,13 @@
 #include "fsd/version.h"
 
 namespace fsd {
+
+// 单个组件的下载进度。
+struct DownloadProgress {
+  std::string package_name;
+  std::uint64_t received = 0;  // 已落盘字节（含续传前缀）
+  std::uint64_t total = 0;     // 总字节；未知为 0
+};
 
 struct DownloadOptions {
   std::string package_name;
@@ -40,6 +48,8 @@ struct DownloadOptions {
   std::string ca_file;
   std::string pinned_public_key;
   std::string user_agent{kDefaultUserAgent};
+  // 下载进度回调（可选），带组件名。回调应快速返回，不要做重活。
+  std::function<void(const DownloadProgress&)> on_progress;
 };
 
 class SecureDownloader {

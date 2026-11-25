@@ -1,12 +1,12 @@
 # M2 计划：verify → OTA 代理
 
-> 对应 `docs/OTA.md` 第 6 章 M2。目标：把 `verify/ota-fetch`（M1 最小版）扩展成设备端 **OTA 代理**：周期发现 → 取清单验签 → 适用性判断 → 调用 fsd 下载 → 状态持久化 → 上报（可 stub）。**安装/确认/回滚留给 M3。**
+> 对应 `docs/OTA.md` 第 6 章 M2。目标：把 M1 的 `ota-fetch` 扩展成设备端 **OTA 代理**。**安装/确认/回滚的具体实现留给 M3**，但状态机的 phase 枚举在 M2 一次补全。
 
 ## 依赖与边界
 
 - 设备端：链接 `fsd`（`HttpClient` / `SecureDownloader`）+ OpenSSL + nlohmann。
 - **不依赖 pack**（发布端）。
-- 不修改 fsd 的公开语义；只**新增**一个向后兼容的进度回调（见 §6）。
+- 不修改 fsd 的公开语义；只**新增**向后兼容的进度回调（见 §6）。
 
 ## 模块结构（verify/）
 
@@ -14,56 +14,67 @@
 verify/
 ├── CMakeLists.txt
 ├── src/
-│   ├── crypto.h/.cc        # Ed25519 验签（已有，扩展为 ota_verify_crypto 库）
-│   ├── manifest.h/.cc      # 解析 + schema 校验 + 适用性 → DownloadPlan
-│   ├── fetch.h/.cc         # HttpClient 封装：取清单+签名（无摘要）、取通道指针
+│   ├── crypto.h/.cc        # Ed25519 验签（已有）
+│   ├── manifest.h/.cc      # 解析 + schema 校验 + 适用性 → DownloadPlan（纯函数）
+│   ├── fetch.h/.cc         # HttpClient 封装：取清单/签名/通道指针（无摘要）
 │   ├── download.h/.cc      # SecureDownloader 编排：逐组件、进度、重试、sync
-│   ├── config.h/.cc        # 设备配置（base_url/model/channel/keys/paths）
-│   ├── state_store.h/.cc   # 持久状态（state.json：phase/release_id/重试/下限）
-│   ├── report.h/.cc        # 上报接口（M2 静态方案下写日志；预留 check-in）
-│   ├── agent.h/.cc         # 状态机 + 一次/循环执行
+│   ├── config.h/.cc        # 设备配置
+│   ├── state_store.h/.cc   # state.json 原子持久化
+│   ├── report.h/.cc        # 上报接口（M2 写日志，预留 check-in）
+│   ├── agent.h/.cc         # 状态机
 │   └── ota_agent.cc        # ota-agent CLI 入口
 └── README.md
 ```
 
-可执行文件：新增 `ota-agent`；`ota-fetch` 保留为调试工具（或按你意见合并进 `ota-agent check --once`）。
-
-## 状态机（M2 范围）
-
-按 `docs/OTA.md` 1.3，M2 只实现前半段：
-
-```
-Idle → Checking(②) → FetchingManifest(③ 下载+验签+解析)
-                    → Downloading(⑤ 逐组件, fsd 内部 ⑥ 校验)
-                    → Downloaded(⑦ 最小复核) → Idle(上报后)
-```
-
-`Installing / PendingReboot / TrialBoot / Confirmed / RolledBack` 是 **M3 占位**，M2 在 `Downloaded` 后上报并结束。
-
-## 一次运行的流程（`ota-agent check --once`）
-
-1. 读配置（JSON 文件或环境变量）。
-2. ① 前置检查（时间/网络/空间；M2 简化：网络可达、暂存区可写）。
-3. ② 发现：静态通道轮询 `channels/<channel>/<model>/manifest.json` → 清单地址；或「无更新」。
-4. ③ 取清单 + 签名 → 验签 → 解析 JSON → 校验 `schema_version`。
-5. ④ 适用性判断：`model` / `hardware_compat` / `layouts` / `security_version` 下限 / `min_version_code` / `version_code` / 拉黑列表。
-6. 提高防回滚下限（M2 先写 `state.json` 的 `security_version_floor`；U-Boot env 留 M3）。
-7. ⑤ 逐组件下载（`SecureDownloader`，清单哈希/大小/续传/进度回调）。
-8. ⑦ 下载后复核（文件存在 + 哈希；M2 重算一次）。
-9. 写 `state.json`（`phase=downloaded`，带 `release_id`）。
-10. 上报 `downloaded`（M2 stub：写日志）。
-11. 清理旧暂存（保留当前 release）。
-
-## CLI 设计
+**只保留一个可执行文件 `ota-agent`**（原 `ota-fetch` 的能力并入 `ota-agent check --once`）：
 
 ```
 ota-agent check [--once] [--config <json>]
 ota-agent status [--config <json>]
 ```
 
-- `--once`：跑一个周期后退出（便于 CI / 定时器触发）。
-- 常驻循环（daemon）M2 先不做；用 cron/systemd timer 触发 `--once`，M3 再加常驻与退避。
-- 配置读取优先级：`--config` > 环境变量 > 默认路径（`/data/ota/agent.json`）。
+## 状态机（phase 枚举在 M2 一次补全）
+
+```
+Idle → Checking(②) → FetchingManifest(③) → Downloading(⑤/⑥)
+     → Downloaded(⑦复核) → [M3] Waiting → Installing → PendingReboot
+     → TrialBoot → Confirmed / RolledBack
+```
+
+| phase | M2 | 说明 |
+|---|---|---|
+| `idle` | ✅ | 空闲 |
+| `checking` | ✅ | ② 发现 |
+| `fetching_manifest` | ✅ | ③ 取清单 + 验签 + 解析 |
+| `downloading` | ✅ | ⑤ 逐组件下载（fsd 内部 ⑥ 校验） |
+| `downloaded` | ✅ | ⑦ 最小复核完成，等待安装（M3） |
+| `waiting` | 占位 | 等待安装条件/时间窗（M3） |
+| `installing` | 占位 | ⑧ 安装（M3） |
+| `pending_reboot` | 占位 | 已提交待重启（M3） |
+| `trial_boot` | 占位 | ⑨ 试启动（M3） |
+| `confirmed` | 占位 | 已确认（M3） |
+| `rolled_back` | 占位 | 已回滚（M3） |
+| `error` | ✅ | 失败 |
+
+M2 在 `downloaded` 后上报并结束；其余 phase 已定义但不会到达。
+
+## ② 发现：M2 只做静态通道轮询（**会被替换**）
+
+> **明确标注**：M2 只实现「静态通道轮询（方案 A）」：`GET channels/<channel>/<model>/manifest.json`（可选 `If-None-Match`）。`docs/OTA.md` 第 3 章已规划 B（check-in API）/C（MQTT）/D，M5 会按计划替换 ② 这一层。代码里把 ② 抽成 `Discovery` 接口，后续只替换实现。
+
+## 一次运行的流程（`ota-agent check --once`）
+
+1. 读配置。
+2. ① 前置检查（时间/网络/空间；M2 简化）。
+3. ② 发现（静态轮询）→ 清单地址 / 无更新。
+4. ③ 取清单 + 签名 → 验签 → 解析 → schema 校验。
+5. ④ 适用性判断（model / hardware_compat / layouts / security_version 下限 / min_version_code / version_code / 拉黑）。
+6. 提高防回滚下限（M2 写 `state.json.security_version_floor`；U-Boot env 留 M3）。
+7. ⑤ 逐组件下载（`SecureDownloader`，清单哈希/大小/续传/进度回调）。
+8. ⑦ 下载后复核（文件存在 + 哈希）。
+9. 写 `state.json`（`phase=downloaded`）。
+10. 上报 `downloaded`（M2 写日志）。
+11. 清理旧暂存（保留当前 release）。
 
 ## 配置（JSON 示例）
 
@@ -83,25 +94,42 @@ ota-agent status [--config <json>]
 }
 ```
 
-- 地址、密钥、CA 走配置/环境变量，**不写死、不入库**。
+地址/密钥/CA 走配置或环境变量，不写死、不入库。
 
-## fsd 扩展：进度回调（M2 必须）
+## fsd 进度回调：最优分层（两级）
 
-现状：fsd 只有内部 curl 回调打印 stderr，**无公开 API**。M2 需要：
+**结论：传输层与编排层各加一个回调，语义不同、各有用处。**
 
-- `HttpRequest` 增加 `std::function<void(std::uint64_t received, std::uint64_t total)> on_progress;`
-- `DownloadOptions` 增加同名字段，透传到 `HttpRequest`。
-- `ReportProgress` 调用它（空回调时维持现状，仍可打印 stderr）。
-- **向后兼容**：不改变现有行为；pack 不依赖 fsd，不受影响。
+1. **传输层** `HttpRequest`：
+   ```cpp
+   std::function<void(std::uint64_t received, std::uint64_t total)> on_progress;
+   ```
+   字节级进度，直接挂在 curl 的 `XFERINFO` 上。`HttpClient` 的独立用途（取清单/签名）也能用。
 
-## 状态持久化
+2. **编排层** `DownloadOptions`：
+   ```cpp
+   struct DownloadProgress {
+     std::string package_name;
+     std::uint64_t received;
+     std::uint64_t total;
+   };
+   std::function<void(const DownloadProgress&)> on_progress;
+   ```
+   `SecureDownloader` 内部把 1 的字节回调包装成 2，并补上 `package_name`。
+
+3. **Agent** 订阅 2，聚合成 release 级进度（组件 + 整体）。
+
+**为什么不在单层**：只有字节级，agent 得自己维护「哪个组件」的上下文；只有语义级，`HttpClient` 的独立用途就拿不到进度。两级各司其职。
+**为什么用 `std::function`**：fsd 风格简洁、进度是单一事件；将来若要 `OnRetry`/`OnRedirect` 等，再升级为观察者接口。
+
+## 状态持久化（phase 完整）
 
 `state.json`：
 
 ```json
 {
   "schema": 1,
-  "phase": "idle|checking|downloading|downloaded|error",
+  "phase": "idle|checking|fetching_manifest|downloading|downloaded|waiting|installing|pending_reboot|trial_boot|confirmed|rolled_back|error",
   "release_id": "…",
   "last_error": "…",
   "retry": 0,
@@ -113,25 +141,24 @@ ota-agent status [--config <json>]
 
 ## 错误与重试
 
-- 网络类：`--once` 模式下记录并退出非零；常驻模式（M3）再指数退避。
-- 验签/校验失败：不重试，记 `release_id` 到拉黑列表（M2 先写 error）。
-- 错误码沿用 fsd `ErrorCode`，上报时带错误名。
+- 网络类：`--once` 记录并退出非零；常驻模式（M3）再加退避。
+- 验签/校验失败：不重试，记 `release_id` 拉黑。
+- 错误码沿用 fsd `ErrorCode`。
 
-## 可测试性设计（配合另一智能体的 gtest）
+## 可测试性（配合另一智能体的 gtest）
 
-- `manifest`（解析 + 适用性）设计为**纯函数**，输入 JSON 字符串，输出 `DownloadPlan` 或错误，便于单测。
-- `agent` 通过抽象接口注入 `fetch` / `download`，便于用 fake 实现测状态机。
+- `manifest`（解析 + 适用性）设计为**纯函数**，输入 JSON，输出 `DownloadPlan` 或错误。
+- `agent` 通过接口注入 `Discovery` / `Fetch` / `Download`，便于 fake 测状态机。
 
 ## 交付物
 
-- `verify/` 模块化重构 + `ota-agent`。
-- fsd 进度回调（向后兼容）。
-- `verify/README.md` 更新（配置、CLI、状态机）。
-- 与 `ota-fetch` 并存（或合并，见待确认）。
+- `verify/` 模块化重构 + `ota-agent`（唯一可执行文件）。
+- fsd 两级进度回调（向后兼容）。
+- `verify/README.md` 更新。
 
-## 待确认
+## 已确认
 
-1. `ota-fetch` 合并进 `ota-agent check --once`（只保留一个工具），还是两个都保留？
-2. ② 发现 M2 只做「静态通道轮询（方案 A）」可以吗？（check-in API 是 M5）
-3. `security_version` 下限 M2 先写 `state.json`（U-Boot env 留 M3）可以吗？
-4. 进度回调加到 fsd `HttpRequest`/`DownloadOptions`（向后兼容）是否接受？
+1. ota-fetch 合并进 ota-agent（唯一工具）。
+2. M2 只做静态轮询，代码抽成 `Discovery` 接口，明确后续会替换。
+3. 状态机 phase 一次补全（含 M3 占位）。
+4. fsd 进度回调采用两级（传输层 `HttpRequest` + 编排层 `DownloadOptions`）。

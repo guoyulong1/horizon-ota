@@ -9,6 +9,7 @@
 
 #include <cstdint>
 #include <cstdio>
+#include <functional>
 #include <optional>
 #include <string>
 
@@ -31,6 +32,9 @@ struct HttpRequest {
   // libcurl 公钥锁定，例如 "sha256//<base64(SPKI SHA-256)>"。
   std::string pinned_public_key;
   std::string user_agent{kDefaultUserAgent};
+  // 传输进度回调（可选）。received 是已落盘字节（含续传前缀），
+  // total 是总字节；服务器未给长度时为 0。回调应快速返回。
+  std::function<void(std::uint64_t received, std::uint64_t total)> on_progress;
 };
 
 struct HttpResult {

@@ -13,6 +13,7 @@
 #include <chrono>
 #include <cstdio>
 #include <cstring>
+#include <functional>
 #include <iostream>
 #include <limits>
 #include <memory>
@@ -73,6 +74,7 @@ struct TransferContext {
   bool tty = false;
   int last_percent = -1;
   std::string detail;
+  std::function<void(std::uint64_t, std::uint64_t)> on_progress;
 };
 
 std::string_view TrimHeaderLine(std::string_view line) {
@@ -252,6 +254,12 @@ int ReportProgress(void* clientp, curl_off_t total, curl_off_t now,
   auto* ctx = static_cast<TransferContext*>(clientp);
   if (now < 0) {
     return 0;
+  }
+  if (ctx->on_progress) {
+    const std::uint64_t received = ctx->total_written;
+    const std::uint64_t known_total =
+        total > 0 ? ctx->resume_from + static_cast<std::uint64_t>(total) : 0;
+    ctx->on_progress(received, known_total);
   }
   if (total <= 0) {
     if (ctx->tty) {
@@ -523,6 +531,7 @@ Status HttpClient::Download(const HttpRequest& request,
   context.total_written = request.resume_from;
   context.expected_size = request.expected_size;
   context.tty = ::isatty(fileno(stderr)) == 1;
+  context.on_progress = request.on_progress;
 
   char errbuf[CURL_ERROR_SIZE] = {};
   auto set = [&curl](CURLoption option, auto value) -> Status {

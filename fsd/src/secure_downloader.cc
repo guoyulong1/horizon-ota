@@ -396,6 +396,16 @@ Status DownloadOnce(const DownloadOptions& options, FILE* destination,
   request.ca_file = options.ca_file;
   request.pinned_public_key = options.pinned_public_key;
   request.user_agent = options.user_agent;
+  if (options.on_progress) {
+    request.on_progress = [&options](std::uint64_t received,
+                                    std::uint64_t total) {
+      DownloadProgress progress;
+      progress.package_name = options.package_name;
+      progress.received = received;
+      progress.total = total;
+      options.on_progress(progress);
+    };
+  }
 
   HttpClient client;
   return client.Download(request, result);
