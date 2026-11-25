@@ -1,4 +1,4 @@
-# 设备端工具 ota-fetch：链接 fsd 静态库（同属设备端构建），不依赖 pack。
+# 设备端 OTA 代理：链接 fsd 静态库（同属设备端构建），不依赖 pack。
 set(OTA_WARNINGS
   -Wall
   -Wextra
@@ -18,14 +18,24 @@ set(OTA_WARNINGS
 set(OTA_NLOHMANN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/3rdparty"
     CACHE PATH "directory containing the nlohmann/ subtree")
 
-# 验签库：与 fsd 使用同一个 OpenSSL（经 fsd 的 PUBLIC 链接传递），
-# 供 ota-fetch 与单元测试复用。
+# 验签库：与 fsd 使用同一个 OpenSSL（经 fsd 的 PUBLIC 链接传递）。
 add_library(ota_verify_crypto STATIC src/crypto.cc)
 target_include_directories(ota_verify_crypto PUBLIC src)
 target_link_libraries(ota_verify_crypto PUBLIC fsd)
 target_compile_options(ota_verify_crypto PRIVATE ${OTA_WARNINGS})
 
-add_executable(ota-fetch src/ota_fetch.cc)
-target_include_directories(ota-fetch PRIVATE src "${OTA_NLOHMANN_DIR}")
-target_link_libraries(ota-fetch PRIVATE ota_verify_crypto fsd)
-target_compile_options(ota-fetch PRIVATE ${OTA_WARNINGS})
+# 代理核心：清单解析/适用性、配置、取文件、下载编排、状态、状态机。
+add_library(ota_verify_core STATIC
+  src/manifest.cc
+  src/config.cc
+  src/fetch.cc
+  src/download.cc
+  src/state.cc
+  src/agent.cc)
+target_include_directories(ota_verify_core PUBLIC src "${OTA_NLOHMANN_DIR}")
+target_link_libraries(ota_verify_core PUBLIC ota_verify_crypto fsd)
+target_compile_options(ota_verify_core PRIVATE ${OTA_WARNINGS})
+
+add_executable(ota-agent src/ota_agent.cc)
+target_link_libraries(ota-agent PRIVATE ota_verify_core)
+target_compile_options(ota-agent PRIVATE ${OTA_WARNINGS})

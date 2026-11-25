@@ -1,33 +1,58 @@
 # verify
 
-设备端「发布清单验签 + 适用性判断 + 触发下载」的最小实现（M1），M2 起长成 OTA 代理。
+设备端 **OTA 代理**（M2）。链接 `fsd` 静态库，复用它做 HTTPS 传输与组件下载；不依赖 `pack`（发布端）。
 
-## ota-fetch
+## 能力
 
-链接 `fsd` 静态库，复用它做 HTTPS 传输与组件下载：
+- ② 发现：静态通道轮询（M2）。**会被替换**：`docs/OTA.md` 第 3 章的 check-in / MQTT 方案后续替换这一层。
+- ③ 取发布清单 + 签名（`fsd::HttpClient`，无摘要）→ Ed25519 验签 → JSON 解析。
+- ④ 适用性判断（model / hardware_compat / layouts / security_version 下限 / min_version_code / version_code）。
+- ⑤ 逐组件下载（`fsd::SecureDownloader`，清单哈希 + 续传 + 进度回调）。
+- ⑦ 下载后复核（文件存在）。
+- 状态持久化 `state.json`（phase 完整：`idle/checking/fetching_manifest/downloading/downloaded/waiting/installing/pending_reboot/trial_boot/confirmed/rolled_back/error`，M3 的 phase 先占位）。
 
-1. `fsd::HttpClient` 取 `manifest.json` + `.sig`（**无摘要**，`max_bytes` 限制）。
-2. OpenSSL `EVP_DigestVerify`（Ed25519）验证清单**原始字节**。
-3. nlohmann 解析，校验 `schema_version`。
-4. 适用性判断：`model`、`hardware_compat`、`layouts`、`version_code` / `min_version_code`。
-5. 用 `fsd::SecureDownloader` 下载各组件（`url` + `sha256` + `expected_size` + `resume`）。
+安装 / 确认 / 回滚是 **M3**。
+
+## 用法
 
 ```bash
-ota-fetch --base-url https://ota.example.com \
-          --manifest releases/demo-board/1.2.3/<release_id>/manifest.json \
-          --out-dir /data/ota/staging/<release_id> \
-          --pubkey <64-hex> \
-          --ca-file /etc/ota/ca.pem \
-          --model demo-board --version-code 10202 --layout ab
+ota-agent check [--once] --config <json> [--verbose]
+ota-agent status --config <json>
 ```
 
-## 依赖
+`--once`：跑一个周期后退出（用 cron / systemd timer 触发；常驻与退避在 M3）。
 
-- `fsd` 静态库（同属设备端，通过顶层 `CMakeLists.txt` 的 `add_subdirectory(fsd)` 提供）。
-- OpenSSL、nlohmann/json（`3rdparty/nlohmann`）。
+## 配置（JSON）
 
-## 说明
+```json
+{
+  "base_url": "https://ota.example.com",
+  "model": "demo-board",
+  "channel": "beta",
+  "layout": "ab",
+  "staging_dir": "/data/ota/staging",
+  "state_file": "/data/ota/state.json",
+  "pubkey_hex": "<64 hex>",
+  "ca_file": "/etc/ota/ca.pem",
+  "version_code": 10202,
+  "hardware_compat": ["example,demo-board"],
+  "security_version_floor": 5,
+  "manifest_path": "releases/demo-board/1.2.3/<release_id>/manifest.json"
+}
+```
 
-- `--pubkey` 是设备内置的 32 字节原始 Ed25519 公钥（64 个十六进制字符）。
-- 清单取回后先验签、再解析；验签失败不下载任何组件。
-- 这是 M1 的最小版，后续把状态机、安装、确认、回滚并入 `agent/`。
+- `manifest_path` 为空时，按通道轮询 `channels/<channel>/<model>/manifest.json`。
+- 地址 / 密钥 / CA 走配置，不写死、不入库。
+
+## 模块
+
+| 文件 | 职责 |
+|---|---|
+| `crypto.*` | Ed25519 验签（与 fsd 同一 OpenSSL） |
+| `manifest.*` | 清单解析 + schema 校验 + 适用性（纯函数，便于 gtest） |
+| `config.*` | 配置加载 |
+| `fetch.*` | `HttpClient` 取小文件 |
+| `download.*` | `SecureDownloader` 逐组件下载 + 进度 |
+| `state.*` | `state.json` 原子读写 |
+| `agent.*` | 状态机 `RunOnce` |
+| `ota_agent.cc` | CLI |
