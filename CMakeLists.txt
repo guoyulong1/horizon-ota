@@ -18,10 +18,9 @@ if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
 endif()
 
-# 共享 vendored 依赖目录（nlohmann/json）。
-set(OTA_VENDOR_DIR "${CMAKE_CURRENT_SOURCE_DIR}/3rdparty"
-    CACHE PATH "vendored dependencies")
-
 add_subdirectory(fsd)
 add_subdirectory(verify)
 add_subdirectory(pack)
+
+enable_testing()
+add_subdirectory(tests)

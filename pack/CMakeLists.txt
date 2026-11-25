@@ -15,9 +15,9 @@ endif()
 find_package(OpenSSL REQUIRED)
 find_package(Threads REQUIRED)
 
-# nlohmann/json 单头：include 目录应指向包含 nlohmann/ 子树的父目录，
-# 这样 <nlohmann/json.hpp> 才能解析。默认取 monorepo 的 3rdparty。
-set(OTA_NLOHMANN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../3rdparty"
+# nlohmann/json 单头：include 目录应指向包含 nlohmann/ 子树的父目录。
+# pack 自带 3rdparty，便于随源码一起部署到服务器。
+set(OTA_NLOHMANN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/3rdparty"
     CACHE PATH "directory containing the nlohmann/ subtree")
 
 set(OTA_WARNINGS

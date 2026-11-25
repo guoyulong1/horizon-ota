@@ -39,17 +39,32 @@ long long VersionCode(const std::string& version) {
   int major = 0;
   int minor = 0;
   int patch = 0;
-  if (std::sscanf(version.c_str(), "%d.%d.%d", &major, &minor, &patch) != 3) {
-    throw std::runtime_error("version must be major.minor.patch: " + version);
+  int consumed = 0;
+  if (std::sscanf(version.c_str(), "%d.%d.%d%n", &major, &minor, &patch,
+                  &consumed) != 3 ||
+      consumed != static_cast<int>(version.size())) {
+    throw std::runtime_error(
+        "version must be exactly major.minor.patch: " + version);
   }
-  if (major < 0 || minor < 0 || patch < 0) {
-    throw std::runtime_error("version components must be non-negative");
+  // version_code = major*10000 + minor*100 + patch，要求 minor/patch 在 0..99，
+  // 否则会和相邻主版本号撞值（例如 1.100.0 与 2.0.0）。
+  if (major < 0 || minor < 0 || patch < 0 || minor > 99 || patch > 99) {
+    throw std::runtime_error(
+        "version minor and patch must be between 0 and 99: " + version);
   }
   return static_cast<long long>(major) * 10000 + minor * 100 + patch;
 }
 
 std::string NowUtc() {
-  const std::time_t now = std::time(nullptr);
+  std::time_t now = std::time(nullptr);
+  // 支持可复现打包：固定 SOURCE_DATE_EPOCH 时，重复打包得到相同清单字节。
+  if (const char* epoch = std::getenv("SOURCE_DATE_EPOCH")) {
+    try {
+      now = static_cast<std::time_t>(std::stoll(epoch));
+    } catch (const std::exception&) {
+      throw std::runtime_error("SOURCE_DATE_EPOCH is not a valid integer");
+    }
+  }
   const std::tm* tm = std::gmtime(&now);
   if (tm == nullptr) {
     throw std::runtime_error("cannot format current time");
@@ -126,6 +141,11 @@ int main(int argc, char** argv) {
       throw std::runtime_error(
           "model, version or dtb must not contain quotes, backslash or space");
     }
+    const long long version_code = VersionCode(version);
+    if (min_version_code > version_code) {
+      throw std::runtime_error(
+          "min-version-code must not exceed version_code");
+    }
 
     const fs::path images_dir(images);
     const fs::path kernel = images_dir / "Image";
@@ -168,6 +188,9 @@ int main(int argc, char** argv) {
 
     ordered_json hardware = ordered_json::array();
     for (const auto& hardware_id : hardware_ids) {
+      if (hardware_id.empty()) {
+        throw std::runtime_error("hardware-compat must not be empty");
+      }
       if (hardware_id.find_first_of("\"\\") != std::string::npos) {
         throw std::runtime_error(
             "hardware-compat must not contain quotes or backslash");
@@ -183,7 +206,7 @@ int main(int argc, char** argv) {
     manifest["schema_version"] = 1;
     manifest["release_id"] = release_id;
     manifest["version"] = version;
-    manifest["version_code"] = VersionCode(version);
+    manifest["version_code"] = version_code;
     manifest["security_version"] = security_version;
     manifest["model"] = model;
     manifest["hardware_compat"] = hardware;
