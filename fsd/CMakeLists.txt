@@ -96,19 +96,36 @@ ExternalProject_Add(curl_ep
   BUILD_BYPRODUCTS "${FSD_CURL_LIB}"
 )
 
-add_executable(firmware_secure_download
+# 警告级：库和入口都要用同一套。
+set(FSD_WARNINGS
+  -Wall
+  -Wextra
+  -Wpedantic
+  -Wshadow
+  -Wconversion
+  -Wsign-conversion
+  -Wnon-virtual-dtor
+  -Wold-style-cast
+  -Woverloaded-virtual
+  -Wnull-dereference
+  -Wdouble-promotion
+  -Wformat=2
+  -Wimplicit-fallthrough)
+
+# 静态库 fsd：只包含库源码（不含 main.cc）。设备端的 verify/agent 链接它，
+# 发布端的 pack 不依赖它。
+add_library(fsd STATIC
   src/sha256.cc
   src/md5.cc
   src/manifest.cc
   src/http_client.cc
   src/url.cc
-  src/secure_downloader.cc
-  src/main.cc)
+  src/secure_downloader.cc)
 
-add_dependencies(firmware_secure_download curl_ep)
+add_dependencies(fsd curl_ep)
 
-target_include_directories(firmware_secure_download
-  PRIVATE
+target_include_directories(fsd
+  PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/include"
     "${FSD_TP_INSTALL}/include")
 
@@ -130,38 +147,30 @@ if(fsd_inc_begin GREATER -1 AND fsd_inc_end GREATER fsd_inc_begin)
     string(STRIP "${fsd_system_include}" fsd_system_include)
     if(fsd_system_include MATCHES "^/" AND IS_DIRECTORY "${fsd_system_include}")
       # 用编译选项而不是 include_directories，避免 CMake 把隐式系统路径从
-      # compile_commands.json 里删掉。
-      target_compile_options(firmware_secure_download PRIVATE
+      # compile_commands.json 里删掉。PUBLIC 让链接 fsd 的目标也拿到。
+      target_compile_options(fsd PUBLIC
         "SHELL:-isystem ${fsd_system_include}")
     endif()
   endforeach()
 endif()
 
-target_link_libraries(firmware_secure_download
-  PRIVATE
+target_link_libraries(fsd
+  PUBLIC
     "${FSD_CURL_LIB}"
     "${FSD_OPENSSL_SSL}"
     "${FSD_OPENSSL_CRYPTO}"
     pthread
     dl)
 
-target_compile_options(firmware_secure_download PRIVATE
-  -Wall
-  -Wextra
-  -Wpedantic
-  -Wshadow
-  -Wconversion
-  -Wsign-conversion
-  -Wnon-virtual-dtor
-  -Wold-style-cast
-  -Woverloaded-virtual
-  -Wnull-dereference
-  -Wdouble-promotion
-  -Wformat=2
-  -Wimplicit-fallthrough)
+target_compile_options(fsd PRIVATE ${FSD_WARNINGS})
 
-target_compile_definitions(firmware_secure_download PRIVATE
+target_compile_definitions(fsd PUBLIC
   FSD_VERSION="${PROJECT_VERSION}")
+
+# 命令行入口：链接 fsd 静态库。
+add_executable(firmware_secure_download src/main.cc)
+target_link_libraries(firmware_secure_download PRIVATE fsd)
+target_compile_options(firmware_secure_download PRIVATE ${FSD_WARNINGS})
 
 # clangd 从源码根目录向上查找编译数据库，不会自己进入 build/。
 if(CMAKE_EXPORT_COMPILE_COMMANDS)
