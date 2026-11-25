@@ -32,6 +32,16 @@
 
 ## 构建与验证
 
+### monorepo 一键验证（聚合：fsd + verify + pack + 单元测试）
+
+```bash
+./scripts/verify.sh
+```
+
+等价于：`./3rdparty/fetch.sh`（googletest，首次拉取并校验 SHA-256）→ `(cd fsd && ./3rdparty/fetch.sh)`（OpenSSL/curl，如缺）→ `cmake -S . -B build` → `cmake --build build` → `ctest --test-dir build --output-on-failure`。
+
+单元测试基于 GoogleTest（每个 `TEST` 用例是独立 ctest 条目）；`-DBUILD_TESTING=OFF` 可整体关掉测试。**验证标准**：ctest 全绿（`fsd_self_test` 是其中一条底线）。改动涉及网络/TLS/IO/下载编排时，还需在真机跑一次真实下载验证。
+
 ### 下载模块（fsd）
 
 ```bash
