@@ -17,7 +17,7 @@ tests/integration/run.sh --fsd <binary>  # 用现成二进制
 
 ## 状态
 
-基础 harness 已提供（T1/T2/T3/T5/T6）；T4/T7、弱网、签名 e2e 待补。**尚未在真实 Linux 环境跑过，首次运行请留意输出。**
+基础 harness 已提供（T1/T2/T3/T5/T6），已在地平线 X3 板载（ARM64 / Ubuntu，Python 3.10 / OpenSSL 3.0）实测通过（PASS=9 FAIL=0）。T4/T7、弱网、签名 e2e 待补。
 
 ## 参考
 

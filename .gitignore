@@ -5,6 +5,7 @@
 # 编辑器 / 系统
 .DS_Store
 *.log
+/.vscode/
 
 # 本机 / 沙箱专用，不入库
 /.ssh/
