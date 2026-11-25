@@ -1,0 +1,12 @@
+# 构建产物
+/build/
+/out/
+
+# 编辑器 / 系统
+.DS_Store
+*.log
+
+# 本机 / 沙箱专用，不入库
+/.ssh/
+
+# fsd 模块有独立 .gitignore，覆盖其 build 与 3rdparty 源码

@@ -1,0 +1,9 @@
+# clangd 使用构建目录中的 compile_commands.json，跳转与实际编译的头文件一致。
+CompileFlags:
+  CompilationDatabase: build
+
+# 第三方源码树没有单独的编译参数。后台索引它们会让跳转落到未配置的副本上。
+If:
+  PathMatch: 3rdparty/.*
+Index:
+  Background: Skip

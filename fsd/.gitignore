@@ -1,0 +1,18 @@
+# 构建产物和编译数据库。compile_commands.json 是指向 build/ 的符号链接。
+/build/
+/compile_commands.json
+
+# 下载下来的固件包和示例输出。
+/out/
+
+# clangd 本地索引。
+/.cache/
+
+# OpenSSL 与 curl 由 3rdparty/fetch.sh 按固定标签下载，不入库。
+/3rdparty/openssl/
+/3rdparty/curl/
+/3rdparty/.cache/
+
+# SSH 密钥与临时 Python 依赖（本机/沙箱专用，绝不可入库）。
+/.ssh/
+/.ssh-py/

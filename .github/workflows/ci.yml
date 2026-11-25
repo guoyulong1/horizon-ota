@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+jobs:
+  fsd:
+    # 目标架构是 ARM64（地平线X3），用 GitHub 原生 ARM64 runner；
+    # 若账号没有 ubuntu-24.04-arm，改成 ubuntu-latest（x86_64）仍能校验编译与自检。
+    runs-on: ubuntu-24.04-arm
+    defaults:
+      run:
+        working-directory: fsd
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 缓存第三方源码（OpenSSL/curl）
+        uses: actions/cache@v4
+        with:
+          path: |
+            fsd/3rdparty/openssl
+            fsd/3rdparty/curl
+          key: fsd-3rdparty-${{ hashFiles('fsd/3rdparty/fetch.sh') }}
+
+      - name: 拉取第三方源码（缓存未命中时）
+        run: ./3rdparty/fetch.sh
+
+      - name: 配置并构建
+        run: |
+          cmake -S . -B build
+          cmake --build build
+
+      - name: 本地自检
+        run: ./build/firmware_secure_download --self-test

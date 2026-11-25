@@ -1,0 +1,17 @@
+# Clang-Format configuration for the firmware secure download demo.
+# Author: GuoYuLong
+# Baseline: Google C++ Style Guide, locked to C++20.
+BasedOnStyle: Google
+Language: Cpp
+Standard: c++20
+ColumnLimit: 80
+IndentWidth: 2
+AccessModifierOffset: -1
+DerivePointerAlignment: false
+PointerAlignment: Left
+ReferenceAlignment: Left
+SortIncludes: CaseSensitive
+IncludeBlocks: Regroup
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+SpacesBeforeTrailingComments: 2

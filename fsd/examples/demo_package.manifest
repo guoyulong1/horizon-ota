@@ -1,0 +1,11 @@
+# 固件包下载清单（示例）
+# Author: GuoYuLong
+# 摘要必须来自可信渠道，不要从下载 URL 同路径再取一份“校验文件”。
+# 这里用 example.com 的稳定页面充当占位负载，便于没有真实固件服务器时演练流程。
+# 若站点内容变化，SHA-256 校验会失败并删除临时文件，这是预期的安全行为。
+# 摘要采集日期：2026-11-20
+name=example-placeholder
+url=https://example.com/
+sha256=25ddf2c883e0d1958ea971d279a7e4f0fd446724ee3db7db19dadabd4a62e484
+size=577
+output=out/example.html
