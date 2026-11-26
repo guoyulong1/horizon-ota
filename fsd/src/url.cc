@@ -251,7 +251,10 @@ std::string RemoveDotSegments(std::string_view input) {
   std::string output;
   while (!input.empty()) {
     if (input.starts_with("../")) {
-      input.remove_prefix(3);
+      // RFC 3986 §5.2.4：把前缀 "../" 替换成 "/"，而不是整个删掉。
+      // 少掉的这个斜杠会让 output 的末段与后一段直接粘连
+      // （例如 "/a/../../b" 会算出 "ab"）。
+      input.remove_prefix(2);
     } else if (input.starts_with("./")) {
       input.remove_prefix(2);
     } else if (input.starts_with("/./")) {

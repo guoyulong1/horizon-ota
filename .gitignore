@@ -2,6 +2,10 @@
 /build/
 /out/
 
+# googletest 由根目录 3rdparty/fetch.sh 按固定标签下载，不入库。
+/3rdparty/googletest/
+/3rdparty/.cache/
+
 # OTA 产物与密钥（本机/服务器，不入库）
 /releases/
 /build-pack/

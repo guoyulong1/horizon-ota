@@ -24,7 +24,7 @@ jobs:
             fsd/3rdparty/curl
           key: fsd-3rdparty-${{ hashFiles('fsd/3rdparty/fetch.sh') }}
 
-      - name: 鎷夊彇绗笁鏂规簮鐮侊紙缂撳瓨鏈懡涓椂锛?
+      - name: 拉取第三方源码（缓存未命中时）
         run: bash ./3rdparty/fetch.sh
 
       - name: 閰嶇疆骞舵瀯寤?
@@ -34,3 +34,31 @@ jobs:
 
       - name: 鏈湴鑷
         run: ./build/firmware_secure_download --self-test
+
+  unit-tests:
+    # 聚合构建 + GoogleTest 单元测试（pack / verify / fsd 移植测试 + 自检）。
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 缓存第三方源码（googletest + fsd 的 OpenSSL/curl）
+        uses: actions/cache@v4
+        with:
+          path: |
+            3rdparty/googletest
+            fsd/3rdparty/openssl
+            fsd/3rdparty/curl
+          key: unit-3rdparty-${{ hashFiles('3rdparty/fetch.sh', 'fsd/3rdparty/fetch.sh') }}
+
+      - name: 拉取第三方源码（缓存未命中时）
+        run: |
+          bash ./3rdparty/fetch.sh
+          (cd fsd && bash ./3rdparty/fetch.sh)
+
+      - name: 配置并构建（聚合）
+        run: |
+          cmake -S . -B build
+          cmake --build build
+
+      - name: 单元测试（ctest + GoogleTest）
+        run: ctest --test-dir build --output-on-failure
