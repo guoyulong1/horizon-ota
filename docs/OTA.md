@@ -74,7 +74,7 @@
 
 > **顺序不能反。** 摘要只能证明「字节和清单一致」，清单本身必须先被证明可信：**先验签清单，再用清单里的哈希去下载**。下载模块本身不验签、也不做防回滚，这两项必须在下载前后补上。
 
-**这套信任链的边界**（首版是「签名清单」方案，不是 TUF）：它防传输篡改、组件替换和普通旧版本重放；**不防**服务器完全失陷后长期返回某份签名有效但陈旧的清单（freeze）、跨版本的清单/组件混搭（mix-and-match，由 ③ 的重复键规则与清单内哈希绑定收窄）、以及拿到本地 root 或物理接触后改写 `boot.scr`/内核/环境（那要靠 Secure Boot/Verified Boot 与 OTP，见 4.12）。要系统性地解决元数据新鲜度与角色分离，才需要引入 TUF 类框架；首版不引入，作为演进项。
+**这套信任链的边界**（首版是「签名清单」方案，不是 TUF）：单一签名清单把组件名、大小、哈希绑定在同一份可信元数据里，可防止组件被替换或跨版本拼接；JSON 重复键拒绝用于消除「不同解析器对同一份内容理解不同」的歧义——这两件事机制不同，不能混为一谈。它**不防**服务器完全失陷后长期返回某份签名有效但陈旧的清单（freeze，以及 TUF 意义上的元数据一致性/mix-and-match），也不防拿到本地 root 或物理接触后改写 `boot.scr`/内核/环境（那要靠 Secure Boot/Verified Boot 与 OTP，见 4.12）。要系统性地解决元数据新鲜度与多角色信任，才需要引入 TUF 类框架；首版不引入，作为演进项。
 
 ### 0.5 威胁与对策
 
@@ -229,7 +229,7 @@ stateDiagram-v2
 - 已发布的 `version`、`version_code` 不能复用。改了任何一行代码，组件哈希变了，`release_id` 就变了，不会和旧包混在一起。
 - **`version_code` 不要用语义化版本的算术公式推导**：`主×10000 + 次×100 + 修订` 会让 `1.100.0` 与 `2.0.0` 算出同一个 `20000`，预发布版本也无法区分。由 CI 的发布数据库分配单调递增整数、发布后不复用；`version` 只负责展示。
 - CI 打包前检查新版本的 `version_code` 必须大于 stable 通道当前值，防止误发布「降级」版本。
-- `release_id` 的哈希输入必须规范化：按固定顺序把 `model`、`hardware_compat`、`version`、`version_code`、`security_version`、`install.layouts` 和每个组件的 `name`/`sha256`/`size` 编码后整体哈希（长度前缀或规范化 JSON），不要直接拼接裸哈希字符串。分辨率不要低于 128 bit：12 位十六进制只有 48 bit，长期仓库没有必要省这点长度。
+- `release_id` 必须覆盖**所有会影响安装行为的字段**，否则两个组件相同但安装策略不同的发布会撞出同一个 ID，破坏「同一地址内容永远不变」。定义 `release_id = SHA-256(canonical_release_descriptor)`：`canonical_release_descriptor` 是清单去掉 `release_id` 与签名字段后，对所有参与升级决策的字段做规范化编码（对象键排序、数字/字符串统一编码、数组按语义定序）；`schema_version`、`min_version_code`、`data_schema_version`、`min_data_schema_version`、`install.*`、`components[].*` 全都要纳入，不要手工维护一张易漏的字段清单。分辨率至少 128 bit：12 位十六进制只有 48 bit，长期仓库没有必要省这点长度。
 
 ### 2.2 打包契约
 
@@ -267,7 +267,7 @@ stateDiagram-v2
 | `model` | 字符串 | 是 | 目标设备型号 |
 | `hardware_compat` | 字符串数组 | 是 | 兼容的硬件 ID 列表，对应设备树 `compatible` |
 | `min_version_code` | 整数 | 否 | 安装本包要求的最低当前版本，缺省 0（不限制） |
-| `data_schema_version` | 整数 | 否 | 新固件写入的 data 格式版本，缺省 0 |
+| `data_schema_version` | 整数 | 否 | 新固件能读、也写入的最高 data 格式，缺省 0（不设上限） |
 | `min_data_schema_version` | 整数 | 否 | 新固件能读的最旧 data 格式，缺省 0 |
 | `created_at` | 字符串 | 是 | 清单生成时间，UTC |
 | `install` | 对象 | 是 | 安装策略 |
@@ -322,7 +322,7 @@ stateDiagram-v2
 
 **`name`/`target` 不能变成任意写入路径。** 安装器自己维护「组件名 → 非活动槽分区」的固定映射：`kernel`/`dtb` → 非活动 boot 槽，`rootfs` → 非活动 rootfs 槽，其余名字一律拒绝。清单里的 `target` 只用来确认组件类别，绝不能当块设备路径或目录路径使用。
 
-**`data_schema_version` 与 `min_data_schema_version`**：前者是新固件写出的 data 格式，后者是它能读的最旧格式。设备用后者判断「装了能不能用现有数据」：`min_data_schema_version` 大于本机当前 data 格式就拒绝安装。具体迁移规则见 4.8 的 data 分区一节。
+**`data_schema_version` 与 `min_data_schema_version`**：新固件能读的 data 格式是一个闭区间 `[min_data_schema_version, data_schema_version]`——`min_data_schema_version` 是能读的最旧格式，`data_schema_version` 是能读、也愿意写入的最新格式（不会写一个自己读不了的格式）。设备判据：本机当前 data 格式必须落在这个区间内（`min_data_schema_version ≤ current ≤ data_schema_version`），否则拒绝安装——只检查下界会漏掉「当前数据比固件能读的还新」。字段缺省 0 按宽松语义处理（0 即最小、`data_schema_version` 缺省视为不设上限），发布端应显式填写。当前格式的来源与原子维护见 4.8 的 data 分区。
 
 ### 2.4 签名与密钥管理
 
@@ -350,9 +350,9 @@ stateDiagram-v2
 
 **密钥管理**
 
-- 私钥加口令，口令与备份介质分开保管。Ed25519 签名确定性，同一私钥对同一清单只产生一个签名，可据此确认 `.sig` 确实出自该私钥。
+- 私钥加口令，口令与备份介质分开保管。Ed25519 签名确定性，同一私钥对同一清单只产生一个签名值；但「`.sig` 出自该私钥」只能由公钥验签判断，确定性本身不是证明。
 - **轮换顺序不能反**：设备先持有新公钥，才能接受新私钥的签名。顺序：生成新密钥对 → 发一版带新旧两把公钥、仍用旧私钥签 → 设备都升级后 → 改用新私钥签 → 再发一版删掉旧公钥。
-- 私钥泄露时：立即生成新密钥对，用新私钥签发 `security_version` 更高的版本并在其中带上新公钥；只信任旧公钥的设备仍脆弱，只能尽快升级。
+- **私钥泄露时的恢复边界**：单密钥信任模型下，用新私钥签的新清单无法被只信任旧公钥的设备接受；若继续用已泄露的旧私钥给新公钥「背书」，攻击者同样持有旧私钥、也能给自己的公钥背书。所以**没有预置独立恢复密钥 / 多密钥阈值 / 硬件根信任时，泄露无法仅靠普通 OTA 自助修复**——这类设备只能走安全物理通道或产线重新注册。真正可远程自愈的前提，是出厂时预置一把独立的紧急恢复公钥，或采用 M-of-N 阈值与撤销机制。
 - 想提高效率可用硬件密钥（YubiKey/HSM），私钥不可导出，属可选演进。
 
 **轮换必须回答的五个问题**（只给顺序不够，这些都要写成契约）：
@@ -380,7 +380,7 @@ sequenceDiagram
     CI->>CI: 上传组件、清单、签名，最后切通道指针
 ```
 
-**设备端验签**：用内置可信公钥（可多把，支持轮换）对清单原始字节做 Ed25519 验签；签名长度必须是 64 字节；验签通过**之后**才解析 JSON。Ed25519 有两个常见坑：摘要参数必须为空（Ed25519 不经过摘要），且只能「一次喂完」，不能分块 Update。参考实现见第 7 章。
+**设备端验签**：用内置可信公钥（可多把，支持轮换）对清单原始字节做 Ed25519 验签；签名长度必须是 64 字节；验签通过**之后**才解析 JSON。Ed25519 用 PureEdDSA 模式，内部固定用 SHA-512，但**调用者不能像 ECDSA 那样指定外部摘要算法**：OpenSSL EVP 初始化时 `digest` 传 `NULL`，用一次性 `EVP_DigestSign`/`EVP_DigestVerify` 喂入完整消息，不支持普通的流式 `Update`/`Final`。参考实现见第 7 章。
 
 ### 2.5 发布上线与回滚
 
@@ -405,7 +405,7 @@ sequenceDiagram
 }
 ```
 
-设备先取指针，再用 `manifest_sha256` 比对取到的清单字节，最后验签。指针本身不参与信任决策（信任来自清单签名），但它的原子性保证「设备看到的一定是完整的一次发布」。若具体服务器的单文件覆盖不原子，就先写临时 key 再原子改名，或改用 API 返回不可变清单地址。
+设备先取指针，再用 `manifest_sha256` 比对取到的清单字节，最后验签。指针本身不参与信任决策（信任来自清单签名），但它的原子性保证「设备看到的一定是完整的一次发布」。若具体服务器的单文件覆盖不原子，就先写临时 key 再原子改名，或改用 API 返回不可变清单地址。`current.json` 未签名、其 `manifest_url` 由服务器提供，因此**初始访问该 URL 也必须走 HTTPS + 主机白名单校验**（与组件下载一致），不能只限制重定向后的主机。
 
 **服务器目录约定**
 
@@ -513,12 +513,12 @@ sequenceDiagram
 | 2 | `hardware_compat` 与设备 `compatible` 列表有任意一项相同 | 硬件不兼容 |
 | 3 | `install.layouts` 包含本机分区布局 | 安装器不认识这种布局 |
 | 4 | 清单 `security_version` ≥ 设备记录下限 | 回滚攻击，或通道指错 |
-| 5 | 清单 `min_data_schema_version` ≤ 本机当前 data 格式 | 新固件读不了现有数据，装了也会业务不可用 |
+| 5 | 本机当前 data 格式落在 `[min_data_schema_version, data_schema_version]` 区间内 | 新固件读不了现有数据（太旧或太新），装了也会业务不可用 |
 | 6 | 设备 `version_code` ≥ 清单 `min_version_code`（缺省 0） | 需要先升中间版本 |
 | 7 | 清单 `version_code` > 设备 `version_code` | 已经是这个版本或更新 |
 | 8 | 该 `release_id` 不在本机拉黑列表 | 之前装过并触发了回滚 |
 
-第 2 项数据来自设备树：`compatible` 是 NUL 分隔的字符串列表。第 4 项的下限存在 **U-Boot 环境变量**（而非 rootfs），因为两种方案都会替换 rootfs，而 U-Boot 环境在升级前后一直有效；代理读取它、只在新值更大时提高。它是软件级防回滚，不是硬件级（见 4.4）。第 5 项的当前格式来自 data 分区的 schema 记录。
+第 2 项数据来自设备树：`compatible` 是 NUL 分隔的字符串列表。第 4 项的下限存在 **U-Boot 环境变量**（而非 rootfs），因为两种方案都会替换 rootfs，而 U-Boot 环境在升级前后一直有效；代理在此只读它做比较，提高时机在 ⑧ 提交、只在新值更大时（见 4.4）。它是软件级防回滚，不是硬件级。第 5 项的当前格式来自 data 分区的 schema 记录。
 
 ---
 
@@ -536,7 +536,7 @@ sequenceDiagram
 
 > **时间检查为什么第一。** TLS 校验证书有效期依赖系统时钟。没有电池备份 RTC 的设备刚上电可能停在 1970 年，此时 HTTPS 必然校验失败。
 
-> **构建时间不是可信当前时间。** 把时钟拨到构建时间只保证「不会早于这个固件存在的时间」，它是下限，不是事实。若此时就去校验证书：签发时间晚于构建时间的证书会被误拒（`notBefore` 在「未来」），真实世界里已经过期的证书会被误收（设备以为还在构建当天）。正确顺序：① 有可信 RTC 就读 RTC；② 没有就用构建时间/出厂注入时间做启动下限，只用于让系统跑起来；③ 等 NTP 或受信时间源同步；④ 同步成功后才做 TLS 有效期校验；⑤ 同步不了就不发起 OTA，**绝不为了升级而跳过证书校验**。还要把「最后一次可信时间」持久保存（或依赖带电池的 RTC），防止把时钟回拨到证书有效期内。
+> **构建时间不是可信当前时间。** 把时钟拨到构建时间只保证「不会早于这个固件存在的时间」，它是下限，不是事实。若此时就去校验证书：签发时间晚于构建时间的证书会被误拒（`notBefore` 在「未来」），真实世界里已经过期的证书会被误收（设备以为还在构建当天）。正确顺序：① 有可信 RTC 就读 RTC；② 没有就用构建时间/出厂注入时间做启动下限，只用于让系统跑起来；③ 等 NTP 或受信时间源同步；④ 同步成功后才做 TLS 有效期校验；⑤ 同步不了就不发起 OTA，**绝不为了升级而跳过证书校验**。还要把「最后一次可信时间」持久保存（或依赖带电池的 RTC），防止把时钟回拨到证书有效期内。普通未认证 NTP 本身不等于可信时间源：把「NTP 是否认证、RTC 是否可信、最后一次可信时间」分开记录，不要混成一个布尔量。
 
 **空间预算按 OTA 事务算，不是按组件大小算**：`已校验组件 + 下载中的 .part + 清单与签名 + 事务状态 + 上一版恢复副本（方案二必需）+ 文件系统元数据/保留块 + 安全余量`。临时文件与正式文件会同时存在，下载中的包也可能异常膨胀；日志长期增长会侵占预留区。空间不足时只能清 OTA 自己的旧暂存，**不得删除用户数据**。
 
@@ -567,16 +567,17 @@ sequenceDiagram
 
 ### 4.4 ④ 适用性判断
 
-规则见 3.5，按序逐项检查。全部通过后代理做两件事：
+规则见 3.5，按序逐项检查。全部通过后只做一件事：**确定后续行为**（`download-only` 在 ⑥ 之后停下等用户确认；`reboot-required` / `immediate` 继续）。
 
-1. **提高防回滚下限**（U-Boot 环境变量，只在新值更大时一次写回并回读）。
-2. **确定后续行为**：`download-only` 在 ⑥ 之后停下等用户确认；`reboot-required` / `immediate` 继续。
+**`security_version` 下限不在这里提高**，而是在 ⑧ 的「提交」里、与启动槽和试启动标志**同一次事务写回**提高（见 4.8 第 5 步）。理由：
 
-> 下限在安装前就提高，而不是等确认之后：即使新固件后来被回滚，旧固件也带着新下限，这台设备从此不再接受更旧的清单。代价是**失败后必须能用 `security_version` 不低于该下限的包恢复**——回滚后想退回更旧的固件会被自己的下限拒绝，发布端要为此预留一个「修复包」的版本号空间。
+- ④ 之后还要经历下载、校验、安装；在这些完成前设备仍运行旧固件。若在下载前就提高下限，一次失败的下载、或 `download-only` 只下载不安装，都会把设备锁到更高的下限，永久失去安装更低安全版本的能力。
+- 提交前掉电、安装失败都不应留下「下限已提高但固件没换」的残留。
+- 提交时一次性提高仍保留防重放：提交成功即意味着设备接受了这个版本，回滚后旧槽也在新下限上运行，不再接受更旧的清单。
 
 > U-Boot 环境里的 `security_version` 是**软件级防回滚**：有 root 权限的攻击者可以用 `fw_setenv` 改它。要强防回滚，必须把下限放到 OTP/eFuse 或受保护的存储（4.12），并接受其不可逆代价。
 
-**为什么不做「安装前/确认后」两阶段下限**：把下限拆成 pending/committed 两段，能在新固件回滚时给旧系统留下降级空间，但也会留出一个窗口——设备已经知道更高版本存在，却仍接受更旧的清单。本文选择安装前一次性提高，是偏保守的取舍：宁可牺牲降级便利，也不让重放窗口出现。若产品明确需要「失败后降级恢复」，再改成确认后提交，并把恢复包的版本策略写进发布流程。
+> 提高下限与 Recovery 的冲突见 4.8：下限提高后，方案二 R2 离线缓存的上一确认版本若安全版本更低，不能走普通 ④ 安装路径，必须走「恢复上一确认版本」的专用路径（4.8 恢复等级一节）。
 
 ### 4.5 ⑤ 安全下载
 
@@ -649,7 +650,7 @@ eMMC/SD 可以按镜像长度做整段回读；NAND/UBI 要用与介质匹配的
 
 #### 方案一：A/B 双分区
 
-**分区表**（GPT，分区 UUID 建表时固定；启动参数用 `PARTUUID` 指定根分区，不用设备名，避免 eMMC/SD 编号互换）：
+**分区表**（GPT，分区 UUID 建表时固定；启动参数用 `PARTUUID` 指定根分区，不用设备名，避免 eMMC/SD 编号互换）。**产线要保证磁盘 GUID 与各分区 PARTUUID 按设备唯一、或已验证**：直接克隆同一份磁盘镜像会让多台设备拥有相同 PARTUUID，eMMC 与 SD 混插时可能指错根分区。
 
 | 分区 | 名称 | 内容 | 容量示例 | 随 OTA 变化 |
 |---|---|---|---|---|
@@ -663,7 +664,12 @@ eMMC/SD 可以按镜像长度做整段回读；NAND/UBI 要用与介质匹配的
 
 rootfs 是只读 squashfs，运行期不会因掉电损坏；可写数据全放 data 分区。
 
-**启动状态单独成区**：U-Boot 本体和 `boot.scr` 日后重刷时，不应该连环境一起覆盖。`bootstate` 是设备端 `fw_env.config` 指向的位置，必须与 U-Boot 的 `CONFIG_ENV_OFFSET`/`CONFIG_ENV_SIZE` 对齐（裸 MMC 环境按分区起始偏移配置）；冗余环境的两份都落在该分区内。
+**启动状态单独成区**：U-Boot 本体和 `boot.scr` 日后重刷时，不应该连环境一起覆盖。`bootstate` 的物理地址要两侧对齐，两套视角必须映射到同一组物理扇区：
+
+- U-Boot：`CONFIG_SYS_MMC_ENV_DEV`（MMC 设备）、`CONFIG_SYS_MMC_ENV_PART`（eMMC 硬件分区，**不是 GPT 分区号**）、`CONFIG_ENV_OFFSET`（相对所选存储区域的偏移）、`CONFIG_ENV_OFFSET_REDUND`、`CONFIG_ENV_SIZE`。
+- Linux：`/etc/fw_env.config` 直接指向分区设备，两行分别是分区内的两个偏移：`/dev/mmcblk0pN <offset_1> <env_size>` 与 `/dev/mmcblk0pN <offset_2> <env_size>`。
+
+不能想当然地认为「U-Boot 用 `/dev/mmcblk0p2`、Linux 也写 `/dev/mmcblk0p2` 就同一块」——U-Boot 用的是相对 eMMC 用户区起点的偏移，Linux 用的是分区内偏移。这些值必须在产线配置里固定并记录。
 
 **安装步骤**（设运行在 A 槽，目标 B 槽）：
 
@@ -671,7 +677,7 @@ rootfs 是只读 squashfs，运行期不会因掉电损坏；可写数据全放 
 2. 写 rootfs 分区：整分区写入，然后**回读校验**（只读镜像长度那么多字节，分区多出的部分不比较）。
 3. 写 boot 槽分区：格式化后按文件拷贝内核与 dtb，校验哈希，`sync` 并卸载。
 4. `sync`，确保 data 分区文件落盘；状态文件推进到 `pending_reboot`。
-5. **提交**：一次写回三个 U-Boot 环境变量（`bootslot=<目标槽>`、`upgrade_available=1`、`bootcount=0`），用 `fw_setenv -s <脚本>`；写完回读校验。
+5. **提交**：一次事务写回四个 U-Boot 环境变量（`bootslot=<目标槽>`、`upgrade_available=1`、`bootcount=0`、`security_version=<清单值>`，只在更大时提高）；写完回读校验。
 6. 重启：按 `install.mode` 执行；`immediate` 加延迟，`reboot-required` 还要等时间窗。
 
 **状态文件字段**（data 分区；同样用临时文件 + `fsync` + rename + 目录 `fsync`）：
@@ -682,6 +688,7 @@ rootfs 是只读 squashfs，运行期不会因掉电损坏；可写数据全放 
 | `release_id` | 目标版本 |
 | `source_slot` / `target_slot` | 从哪个槽发起、写入哪个槽 |
 | `previous_confirmed_slot` | 安装开始时的确认槽 |
+| `previous_confirmed_release_id` / `previous_confirmed_manifest_sha256` | 上一确认版本的标识与清单哈希，R2 专用恢复路径校验用 |
 | `install_stage` | `installing` / `written` / `pending_reboot` / `trial` / `confirmed` / `rolled_back` / `failed` |
 | `boot_attempt` | 试启动第几次，用于与服务端对账 |
 | `started_at` / `updated_at` | UTC 时间 |
@@ -696,14 +703,23 @@ rootfs 是只读 squashfs，运行期不会因掉电损坏；可写数据全放 
 | OTA 事务文件（data） | `transaction_id`、目标槽、阶段、错误信息 | 升级恢复的依据 |
 | 当前运行系统（`ota.slot`/PARTUUID、版本） | 实际运行槽、软件版本、健康状态 | 运行事实 |
 
-冲突时：启动以环境为准，恢复以事务文件为准，运行事实以 `ota.slot` + PARTUUID 为准；三者不一致就进「异常处理」，不允许用推测值去写槽。
+冲突时：启动以环境为准，恢复以事务文件为准，运行事实以 `ota.slot` + PARTUUID 为准；三者不一致就按下表处理，不允许用推测值去写槽。
+
+| 异常状态 | 处理 |
+|---|---|
+| 环境有效、事务文件损坏/丢失 | 以环境为启动决策，不自动确认；按 4.9 回滚识别表恢复 |
+| 事务记目标 B、实际启动 A、环境已回滚（`bootcount>bootlimit`） | 按回滚流程补做清理与上报 |
+| `ota.slot` 与 PARTUUID 不匹配 | 不确认、不写任何槽，上报异常 |
+| 环境单份 CRC 坏 | 冗余环境自动选另一份，继续启动 |
+| 两份冗余环境都无效 | 不执行更新、不做推测性写入，进安全恢复/产线 |
+| `upgrade_available=1` 且事务文件损坏 | 不做健康确认，按脚本回退到 `confirmed_slot`，不上报 `confirmed` |
 
 **安装是分阶段事务，必须幂等**：每个阶段先落盘状态再进入下一阶段；掉电后从最后一个已落盘阶段继续，或安全重做当前阶段（重做只写非活动槽，不碰运行槽）。禁止：重复提交已回滚的版本、安装中途重启到未完成的目标槽、在确认前删掉唯一可恢复的旧版本副本（方案二的恢复缓存）。
 
 **要点**
 
 - **提交点只有一个**（第 5 步）。之前掉电，环境变量没变，设备照常从旧槽启动；之后掉电，从新槽启动、进入试启动。两种结果都能从环境变量识别，因为环境变量是唯一真值来源。
-- **三条赋值一次落盘**：`fw_setenv -s` 逐行改内存、最后统一写回，三条变量同一笔事务生效；分三次 `fw_setenv` 会在两次写之间留下「`bootslot` 已换、`upgrade_available` 还是 0」的中间态，等于把未确认固件当正式槽。前提是冗余环境（4.12），写完回读校验。
+- **整组变量必须事务式落盘**：`fw_setenv -s` 只是「逐行改内存、最后统一 flush 一次」，它**不保证任一行失败时全有或全无**——上游 `fw_parse_script()` 在中间某行失败时仍会 `fw_env_flush()`，把已成功的行写进去。所以提交/确认/回滚必须：① 写前预校验全部键值、类型与容量；② 全部应用到内存副本、任一行失败即中止且**不 flush**；③ 全部成功才 flush 一次。实现可用 libubootenv 的 API 自建这个事务，或把整组相关启动状态序列化进单个环境变量。分三次 `fw_setenv` 更糟：中间掉电会留下「`bootslot` 已换、`upgrade_available` 还是 0」的中间态，等于把未确认固件当正式槽。前提是冗余环境（4.12），写完回读校验。
 - **状态文件只是辅助**：它先于提交点写入；若在写它和提交之间掉电，重启后代理看到「状态说待重启，但 `bootslot` 仍是确认槽、`bootcount` 也没有回滚标记」，就重做一次提交（幂等）。注意不能只看「环境变量没变」：回滚之后的值和从未提交时一样，必须靠 `bootcount` 留下的回滚标记区分，见 4.9。
 - **安装失败不影响当前系统**：写入/校验失败时清理非活动槽状态、上报失败，设备继续用旧槽运行。
 
@@ -739,7 +755,7 @@ sequenceDiagram
     U->>R: 启动 recovery（upgrade 模式）
     R->>R: 重新验签清单、重算组件哈希
     R->>R: 写 boot 与 rootfs 分区，回读校验
-    R->>U: 一次写回：清 recovery 标志、置试启动标志
+    R->>U: 事务式写回：清 recovery 标志、置试启动标志
     R->>N: 重启，进入新主系统
     N->>N: 健康检查
     alt 通过
@@ -750,15 +766,17 @@ sequenceDiagram
     end
 ```
 
-**A. 主系统内**：①–⑥ 同方案一；`sync`；写状态文件（待 recovery，带 `release_id`）；提交（`ota_recovery=1`、`recovery_mode=upgrade`，一次写回）；重启。
+**A. 主系统内**：①–⑥ 同方案一；`sync`；写状态文件（待 recovery，带 `release_id`）；提交（`ota_recovery=1`、`recovery_mode=upgrade`，事务式写回）；重启。
 
 **B. U-Boot**：看到 recovery 标志，启动 recovery 分区内核。
 
-**C. recovery**：挂载 `/proc`/`/sys`/`/dev`，等 mmc 设备；读写挂载 data；读状态文件找暂存目录；**重新验签清单、重算每个组件哈希、重做 ④ 全部检查**（recovery 以最高权限写系统分区，不能假设主系统已检查过）；写 boot 分区（格式化、拷贝、比对、`sync`、卸载）；写 rootfs 分区并回读校验；成功则**一次写回**（`ota_recovery=0`、`upgrade_available=1`、`bootcount=0`）、写结果、重启；失败则不动标志、失败计数+1、重启，U-Boot 再进 recovery 重试。
+**C. recovery**：挂载 `/proc`/`/sys`/`/dev`，等 mmc 设备；读写挂载 data；读状态文件找暂存目录；**重新验签清单、重算每个组件哈希、重做 ④ 全部检查**（recovery 以最高权限写系统分区，不能假设主系统已检查过）；写 boot 分区（格式化、拷贝、比对、`sync`、卸载）；写 rootfs 分区并回读校验；成功则**事务式写回**（`ota_recovery=0`、`upgrade_available=1`、`bootcount=0`、`recovery_count=0`）、写结果、重启；失败则不动 `ota_recovery`、重启，由 U-Boot 下次进 recovery 时累加 `recovery_count`。
+
+**`recovery_count` 在 U-Boot 侧累加，不在 recovery 程序里累加**：`boot.scr` 每次准备进 recovery 前 `recovery_count++` 并 `saveenv`，再加载 recovery。这样 recovery 自身初始化失败、甚至挂死（靠看门狗复位）也会被计入；recovery 只在「主系统写完、试启动标志置好」那次事务写回里把它清零。正常进入 rescue 等待人工时，不再把等待时间累加成失败。
 
 **D. 新主系统**：试启动标志为 1，健康检查、确认、上报同方案一（4.9）。
 
-**rescue 模式**：recovery 有两种模式——`upgrade`（代理触发，装暂存区里的版本）与 `rescue`（recovery 连续失败 3 次或新系统连续启动失败超限，停在 recovery，联网取最新版本重装，或等待人工介入，用指示灯提示）。rescue 需联网下载，所以 recovery 里的 OTA 程序需同时具备下载、验签、安装三种能力（静态链接即可）。
+**rescue 模式**：recovery 有两种模式——`upgrade`（代理触发，装暂存区里的版本）与 `rescue`（`recovery_count` 达到 `recovery_limit`、或新系统连续启动失败超限，停在 recovery，联网取最新版本重装，或等待人工介入，用指示灯提示）。rescue 需联网下载，所以 recovery 里的 OTA 程序需同时具备下载、验签、安装三种能力（静态链接即可）。
 
 > 主系统已不完整且设备无网络时，唯一办法是保留一份「上一个确认过的版本」的暂存副本，让 rescue 离线恢复；代价是 data 分区多占一套组件。
 
@@ -772,6 +790,13 @@ sequenceDiagram
 | R3 | rescue 可联网、可选版本、可被运维控制 | 远程救援 |
 
 首版建议至少 R2：A/B 天然保留旧槽；方案二只有 R2 才配得上「无需人工到场」。代价是 data 多占一套组件，空间预算要算进去（4.1）。
+
+**R2 与 `security_version` 的冲突必须闭环**：提交时下限已提高，R2 缓存的上一确认版本往往低于当前下限。若 R2 走普通 ④ 安装路径，会被 `security_version` 拒绝，离线恢复就废了。规定 R2 走**「恢复上一确认版本」的专用路径**，而不是普通安装：
+
+- 升级前，代理把 `previous_confirmed_release_id`、`previous_confirmed_manifest_sha256`（或整份 manifest+sig）、`previous_confirmed_security_version`、各组件哈希一起写进持久状态；R2 缓存保存对应的完整 manifest+sig+组件。
+- R2 恢复时，recovery 校验缓存 manifest 的签名与组件哈希，**必须与事先记录的那一份逐字节一致**，然后直接安装。允许安装的只限于「本机事先确认过的那一个精确版本」，不允许借这条路径指定任意更低版本。
+- 恢复**不下调** `security_version` 下限，也不调用普通 ④；记一次恢复事件并上报。
+- 若缓存缺失或不匹配，走备选方案：发布端把旧版本内容重新打包成更高 `version_code`、更高 `security_version` 的「修复包」，设备按正常规则安装。
 
 **recovery 自身也会过期**：它不参与 OTA，却要一直理解新系统。recovery 必须声明并能校验：支持的清单 `schema_version` 范围、公钥集合（至少覆盖轮换期双钥）、分区布局版本、最低可恢复的主系统版本。主系统升级改变这些契约时，要同步评估 recovery 是否还救得回来；recovery 的离线升级另立流程（0.2）。
 
@@ -795,15 +820,15 @@ Flash 预算示例（rootfs 300 MiB、boot 64 MiB）：A/B ≈ 300×2 + 64×2 + 
 
 **契约**：
 
-- **N 与 N-1 兼容**：新版本必须能读上一确认版本的数据格式。清单用 `min_data_schema_version` 声明它能读的最旧格式，`min_data_schema_version` 大于本机当前格式就在 ④/⑦ 拒绝安装，而不是装完再崩。
-- **试启动期间不做不可逆迁移**：迁移只在确认之后执行（或另设「首次正常关机/空闲」窗口）。试启动阶段只允许「兼容读取 + 写新格式副本」。
+- **N 与 N-1 兼容 + 可读区间**：新固件能读的 data 格式是 `[min_data_schema_version, data_schema_version]` 的闭区间；本机当前格式必须落在区间内（`min ≤ current ≤ max`），否则在 ④/⑦ 拒绝安装——只检查下界会漏掉「当前数据比固件能读的还新」。
+- **schema 记录本身要可靠**：当前 data 格式记录放在 data 分区（不随 rootfs 换），原子维护（临时文件 + `fsync` + rename + 目录 `fsync`）；首次运行写入；记录损坏或缺失时按「未知」处理，只走保守路径（拒绝要求迁移的安装、回退到确认槽或 recovery）。
+- **试启动期间不做不可逆迁移**：迁移只在确认之后执行。试启动阶段只允许「兼容读取 + 写新格式副本」。
 - **迁移可回滚**：双版本目录（如 `data/v1/`、`data/v2/`）、版本化数据库或迁移前备份；旧格式保留到新版本确认之后。
+- **确认后的迁移失败也要兜底**：此时 `upgrade_available=0`，Bootloader 不会再自动切回旧槽。必须「先建新副本 → 校验 → 原子切换到新 schema → 保留旧副本」，任一步失败就回退到旧副本并告警；不能出现「已上报 confirmed、迁移失败、主应用起不来」。
 - **迁移幂等、可续做**：迁移过程自己写状态文件，掉电后从最后一个完整步骤继续；迁移失败不得破坏旧数据。
 - **空间**：备份副本计入 4.1 的空间预算。
 
-清单里的 `data_schema_version` / `min_data_schema_version`（2.3）是这条契约的声明；设备端最终判据仍是「新固件自己能否以兼容方式打开现有 data」。
-
-> 这一条不满足时，A/B 的「回滚」只在系统层成立，业务层仍然不可用。测试见 5.2 的 T23–T24。
+> 这一条不满足时，A/B 的「回滚」只在系统层成立，业务层仍然不可用。测试见 5.2 的 T23、T24、T34。
 
 ### 4.9 ⑨ 启动确认与自动回滚
 
@@ -817,28 +842,30 @@ Flash 预算示例（rootfs 300 MiB、boot 64 MiB）：A/B ≈ 300×2 + 64×2 + 
 | `confirmed_slot`（方案一） | 最近一次通过健康检查、可回退的槽 | 出厂（`a`）；代理确认时 |
 | `ota_recovery`（方案二） | 1 表示下次进 recovery | 代理发起升级；recovery 失败重试；`boot.scr` 超限；recovery 成功后清 0 |
 | `recovery_mode`（方案二） | `upgrade` 或 `rescue` | 代理（发起升级置 `upgrade`）；`boot.scr`（超限置 `rescue`） |
+| `recovery_count`（方案二） | recovery 进入次数（失败计数） | `boot.scr` 进 recovery 前 +1；recovery 成功后清 0 |
+| `recovery_limit`（方案二） | recovery 最大重试次数 | 出厂写入（如 3），OTA 不改 |
 | `upgrade_available` | 1 表示当前固件尚未确认，处于试启动 | 代理；recovery；`boot.scr` |
 | `bootcount` | 试启动期间连续启动次数 | `boot.scr`（回滚时保留超限值作标记） |
 | `bootlimit` | 允许的最大启动尝试次数 | 出厂写入（如 3），OTA 不改 |
 
 `bootslot` 与 `confirmed_slot` 必须分开：前者是「这次从哪启动」，后者是「回滚到哪」。回滚一律回退到 `confirmed_slot`，而不是「另一个槽」——写坏的槽也可能正好是「另一个槽」。0/1 标志只用 0/1 赋值，不删变量。
 
-代理判断「当前跑在哪个槽」不能读 `bootslot`——那是启动意图，不是事实。约定：`boot.scr` 在加载内核时把实际启动槽放进启动参数 `ota.slot=<a|b>`（或设备树 `/chosen`），代理读 `/proc/cmdline` 得到它，并与根分区的 `PARTUUID` 交叉验证。两者不一致或缺失，说明本次没按意图启动（例如环境写入失败、人工在 U-Boot 里改过槽），按异常处理，绝不确认。这条契约也让回滚后的旧系统能正确判断「自己不是试启动目标槽」。（RAUC 用 `rauc.slot=` 做同一件事。）
+代理判断「当前跑在哪个槽」不能读 `bootslot`——那是启动意图，不是事实。首版只用一种传递方式：`boot.scr` 把实际启动槽加进 `bootargs`（`ota.slot=<a|b>`），代理读 `/proc/cmdline` 得到它，并与根分区的 `PARTUUID` 交叉验证。两者不一致或缺失，说明本次没按意图启动（例如环境写入失败、人工在 U-Boot 里改过槽），按 4.8 的异常处理表处理，绝不确认。设备树 `/chosen` 是以后的可选项，不要在首版混用两套读取路径。（RAUC 用 `rauc.slot=` 做同一件事。）
 
 **`boot.scr` 的判定顺序**
 
 方案一（A/B）：
 
 1. **补默认值并校验**：`confirmed_slot` 缺失/非法 → 取出厂默认 `a`；`bootslot` 缺失/非法 → 取 `confirmed_slot`；`upgrade_available`、`bootcount` 缺失 → 0；`bootcount` 不是数字 → 按 `bootlimit + 1` 处理（宁可回滚，不无限重试）。
-2. `upgrade_available=1` 时 `bootcount++` 并 `saveenv`。**先落盘再启动**，本次启动中掉电计数也不丢。`saveenv` 失败不能当已计数：本次改从 `confirmed_slot` 启动，记错误、不确认（环境不可写按硬件故障上报）。
-3. `bootcount > bootlimit` 时回滚：`bootslot=confirmed_slot`、`upgrade_available=0`，一次写回并保存，**但不清 `bootcount`**（超限值留着当回滚标记，见下）。
+2. `upgrade_available=1` 时 `bootcount++` 并 `saveenv`。**先落盘再启动**，本次启动中掉电计数也不丢。`saveenv` 失败不能当已计数：本次只启动 `confirmed_slot`、绝不确认新固件，保留事务与环境原状，把环境存储故障作为严重错误记录。若环境一直不可写，计数无法继续累积到 `bootlimit`，也就**不承诺**还能靠计数完成持久化回滚——此时设备停在 `confirmed_slot` 上受限运行，等环境恢复后重新协调状态，或转人工/产线恢复。
+3. `bootcount > bootlimit` 时回滚：`bootslot=confirmed_slot`、`upgrade_available=0`，事务式写回并保存，**但不清 `bootcount`**（超限值留着当回滚标记，见下）。
 4. 按 `bootslot` 加载内核与 dtb；加载失败则 `reset`——本次已计数，下次继续消耗尝试次数。
 
 方案二（单系统 + recovery）：
 
 1. 同上的默认值与校验。
 2. **`ota_recovery=1` 最优先**：按 `recovery_mode` 进 recovery。这里**不清 `ota_recovery`**——recovery 可能正写到一半，清掉它下次就会去启动不完整的主系统；标志由 recovery 在「主系统写完、试启动标志置好」之后自己清。
-3. `upgrade_available=1` 时 `bootcount++` 并保存；超过 `bootlimit` 则置 `ota_recovery=1`、`recovery_mode=rescue`、`upgrade_available=0`，保留超限计数，一次写回后复位进 recovery。
+3. `upgrade_available=1` 时 `bootcount++` 并保存；超过 `bootlimit` 则置 `ota_recovery=1`、`recovery_mode=rescue`、`upgrade_available=0`，保留超限计数，事务式写回后复位进 recovery。
 4. 否则启动主系统；加载失败则 `reset`。
 
 > 两套方案不混用，`bootslot` 和 `ota_recovery` 不会同时有效。若某台设备真要两者兼有，必须先把这张顺序表写死并逐项测试——靠「看起来不冲突」是不够的。方案二里，人工/持久请求的 rescue 必须高于试启动超限，否则新固件连续失败时，超限回滚会把现场唯一的救援入口盖掉。
@@ -862,14 +889,14 @@ Flash 预算示例（rootfs 300 MiB、boot 64 MiB）：A/B ≈ 300×2 + 64×2 + 
 >
 > **二选一，绝不同时用**：原生机制在运行 `bootcmd` 之前就加一并保存，脚本再加一就是同一个计数加两次；`bootlimit` 生效时超限会直接改跑 `altbootcmd`，脚本里的回滚逻辑根本不会执行。
 >
-> 如果改用原生 Boot Count Limit：`bootcmd` 只做选槽，`altbootcmd` 负责回滚（`bootslot=confirmed_slot`、`upgrade_available=0`、保留 `bootcount`），并在产线检查里确认 `bootlimit` 生效时 `altbootcmd` 一定存在、不会落到交互提示符；同时确认 bootcount 后端（env/FS）与 `fw_printenv` 读到的值、Linux 确认时清标志的写入位置是同一份存储。
+> 如果改用原生 Boot Count Limit：`bootcmd` 只做选槽，`altbootcmd` 负责回滚（`bootslot=confirmed_slot`、`upgrade_available=0`、保留 `bootcount`），并在产线检查里确认 `bootlimit` 生效时 `altbootcmd` 一定存在、不会落到交互提示符。后端要区分：`CONFIG_BOOTCOUNT_ENV` 用 U-Boot 环境变量，Linux 侧用 `fw_setenv`/`fw_printenv` 对齐同一份环境；`CONFIG_BOOTCOUNT_FS` 是文件系统里一份含 magic/version/bootcount/upgrade_available 的记录文件，**不等于** `fw_printenv` 读到的环境变量，Linux 侧清标志要按该文件格式另定义写入方式。
 
 **环境变量怎么扛掉电**
 
 整个状态机以 U-Boot 环境为唯一真值，所以环境写入必须扛得住掉电：
 
 - **冗余环境**（`CONFIG_ENV_REDUNDANT`）：写另一份，再把当前份标记失效；写一半掉电，至少一份完整。
-- **一次写回**：提交、确认、回滚都把整组变量交给一次落盘，用 `fw_setenv -s <脚本>`（`--script` 批量模式：逐行改内存，最后一次 `fw_env_flush`）。不要分三次 `fw_setenv`——中间掉电会留下「`bootslot` 已换、`upgrade_available` 还是 0」的状态，等于把没确认的固件当成正式槽。
+- **整组变量事务式落盘**：提交、确认、回滚都要求「预校验 → 全部应用到内存副本 → 任一行失败即中止不 flush → 全部成功才 flush 一次」。`fw_setenv -s` 只是逐行改内存、最后 flush 一次，**不保证中途失败时全有或全无**（上游 `fw_parse_script()` 中间失败仍会 flush），用它必须配合预校验，或用 libubootenv 自建事务。分三次 `fw_setenv` 更糟——中间掉电会留下「`bootslot` 已换、`upgrade_available` 还是 0」的中间态，等于把没确认的固件当成正式槽。
 - **检查返回值并回读**：返回 0 只说明它认为写成功；再 `fw_printenv` 读一遍，值对才算落盘。确认时尤其如此。`fw_setenv`/`fw_printenv` 之间有 `flock` 串行化，代理与 recovery 不会互相踩写。
 
 **启动失败必须表现为一次重启**：计数只在脚本执行时加一，所以回滚能触发的前提是——新固件的每一种失败最终都变成一次重启。
@@ -910,7 +937,7 @@ Flash 预算示例（rootfs 300 MiB、boot 64 MiB）：A/B ≈ 300×2 + 64×2 + 
 
 试启动开始后，代理第一次运行就把状态文件推进到 `trial`，`boot_attempt` 记为当前 `bootcount`，用于与服务端对账。
 
-**确认动作**：健康检查通过、并且从 `/proc/cmdline` 的 `ota.slot` 确认当前运行槽就是目标槽之后，把 `confirmed_slot=<当前槽>`、`upgrade_available=0`、`bootcount=0` 一次写回并保存，回读确认。随后按「本地状态优先」的顺序处理：
+**确认动作**：健康检查通过、并且从 `/proc/cmdline` 的 `ota.slot` 确认当前运行槽就是目标槽之后，把 `confirmed_slot=<当前槽>`、`upgrade_available=0`、`bootcount=0` 事务式写回并保存，回读确认。随后按「本地状态优先」的顺序处理：
 
 1. 落盘并回读成功 → 状态文件推进到 `confirmed` 并 `fsync`。
 2. 清理暂存区（清理条件见 4.10）。
@@ -965,7 +992,7 @@ Flash 预算示例（rootfs 300 MiB、boot 64 MiB）：A/B ≈ 300×2 + 64×2 + 
 | 下载中 | 暂存区留着临时文件或无 | 旧槽，正常 | 续传或重下 |
 | 写非活动槽 | 非活动槽不完整，环境变量没变 | 旧槽，正常 | 丢弃这次安装，从暂存重装 |
 | 写状态文件后、提交前 | 环境变量没变，`bootcount` 为 0 | 旧槽，正常 | 重做提交 |
-| 提交时 | 一次写回 + 冗余环境，至少一份完整 | 新槽或旧槽 | 新槽（`upgrade_available=1`）进试启动；旧槽（`bootcount=0`）重做提交 |
+| 提交时 | 事务式写回 + 冗余环境，至少一份完整 | 新槽或旧槽 | 新槽（`upgrade_available=1`）进试启动；旧槽（`bootcount=0`）重做提交 |
 | 试启动中 | 计数已加并保存 | 新槽，继续试启动 | 累积，超限自动切回 |
 | 试启动失败超限 | `bootcount` 保留超限值作回滚标记 | 旧槽，脚本已切回 | 识别回滚、上报 `rolled_back`、拉黑，最后清计数 |
 | 试启动期间 data 被改写 | 旧系统需能读 N-1 数据格式 | 旧槽 | 校验数据兼容，必要时从迁移前备份恢复 |
@@ -979,7 +1006,7 @@ Flash 预算示例（rootfs 300 MiB、boot 64 MiB）：A/B ≈ 300×2 + 64×2 + 
 | 下载中 | 暂存留着临时文件 | 主系统，没动过 | 续传 |
 | 提交之后 | recovery 标志为 1 | recovery | 正常升级流程 |
 | recovery 写主系统时 | 主系统不完整，标志仍为 1 | recovery | 从暂存重装（暂存不受影响） |
-| recovery 校验/写入失败 | 同上 | recovery | 失败计数+1，达 3 次转 rescue |
+| recovery 校验/写入失败 | 同上 | recovery | `recovery_count` 下次启动 +1，达 `recovery_limit` 转 rescue |
 | recovery 成功改环境变量时 | 标志可能是 0 或 1 | 主系统（试启动）或 recovery | recovery 重做一遍幂等 |
 | 新主系统试启动失败超限 | — | recovery（rescue） | 联网取最新重装，或等人工 |
 | data 迁移中掉电 | 迁移状态记录进度 | 主系统或 recovery | 迁移幂等续做；确认前不得做不可逆迁移 |
@@ -991,7 +1018,7 @@ Flash 预算示例（rootfs 300 MiB、boot 64 MiB）：A/B ≈ 300×2 + 64×2 + 
 
 | 措施 | 作用 | 代价 |
 |---|---|---|
-| 冗余 U-Boot 环境 | `saveenv`/`fw_setenv` 时掉电不会把环境写坏；配合一次写回（4.9）才能保证整组变量同时生效。**强建议**，两种方案的提交点都依赖它 | 环境占用翻倍 |
+| 冗余 U-Boot 环境 | `saveenv`/`fw_setenv` 时掉电不会把环境写坏；配合事务式写回（4.9）才能保证整组变量同时生效。**强建议**，两种方案的提交点都依赖它 | 环境占用翻倍 |
 | 独立的 `bootstate` 分区 | 启动状态与 U-Boot 本体分开，重刷 bootloader 时不误伤环境（4.8） | 多一个分区；环境偏移与 `fw_env.config` 必须同步 |
 | 早开晚喂的硬件看门狗 | 把各种「起不来」统一变成一次重启，回滚才能触发 | 需硬件看门狗，超时要按最长启动时间设 |
 | 私有 CA 或公钥锁定 | 设备只信任自己的 OTA 服务器 | 证书轮换要提前规划 |
@@ -1036,21 +1063,25 @@ Flash 预算示例（rootfs 300 MiB、boot 64 MiB）：A/B ≈ 300×2 + 64×2 + 
 | T13 | 时间未同步 | 启动时阻断 NTP | ① 不通过，等待，不发起 HTTPS |
 | T14 | 清单指向已删组件 | 删掉服务器上的组件 | ⑥ 前的 HTTP 阶段失败（404），代理重新走 ② |
 | T15 | 回滚后再次启动 | 让 T8 的版本回滚，再断电重启一次 | 代理识别回滚（`bootcount > bootlimit`、`upgrade_available=0`），不重新提交该版本，上报 `rolled_back` |
-| T16 | 确认时环境不可写 | 把 `fw_setenv` 的存储设为只读或写满 | 不上报 `confirmed`；继续试启动直到回滚，设备仍可用 |
+| T16 | 确认时环境不可写 | 把 `fw_setenv` 的存储设为只读或写满 | 不上报 `confirmed`、不清试启动状态；后续启动优先旧确认槽，绝不把未确认槽当正式槽；上报环境故障、进受限恢复（不承诺环境永久不可写时仍能靠计数回滚） |
 | T17 | 冗余环境第一份写入时断电 | 在写 `bootstate` 第一份的中途断电 | 至少一份环境有效，设备仍能按旧状态启动 |
 | T18 | 冗余环境第二份写入时断电 | 在写第二份或置失效标记时断电 | 启动时选到正确副本，不出现半份环境 |
 | T19 | 提交写环境失败 | 把 `bootstate` 设为只读或写满后发起安装 | 不切换启动槽，设备仍从旧槽启动，上报失败 |
 | T20 | 回滚写环境时断电 | 在第 `bootlimit+1` 次启动的回滚写入中途断电 | 下次启动仍回退到 `confirmed_slot`，不回到新槽 |
 | T21 | 环境与 cmdline 不一致 | 手工把 `bootslot` 改成非运行槽后重启 | 代理以 `ota.slot`/PARTUUID 为准，不确认、不写活动槽 |
 | T22 | 正常运行连续断电 | 在 `upgrade_available=0` 时反复断电重启 | 不计数、不回滚、不擦写环境 |
-| T23 | data schema 升级后回滚 | 新版本把 data 升到 v2 后回滚（含试启动期误迁移） | 旧应用能读 v1 数据，或能从迁移前备份恢复 |
+| T23 | 试启动期间误迁移保护 | 让新版本在试启动期尝试不可逆迁移（违规版本） | 迁移被禁止或隔离到副本，旧数据不被覆盖；回滚后旧应用业务正常 |
 | T24 | data 迁移中掉电 | 在迁移步骤之间断电 | 迁移可续做，旧数据不被覆盖 |
 | T25 | 事务状态文件损坏 | 截断或清空状态文件 | 进入安全恢复路径，不误写槽、不误清暂存 |
 | T26 | 清单重复键/路径穿越 | 构造含重复 `security_version`、`../` 路径、未知 `target` 的清单 | 验签后解析即拒绝，不下载 |
-| T27 | 时间回拨/证书过期 | 把时钟拨回证书有效期，或使用过期证书 | 拒绝下载，不绕过证书校验 |
+| T27 | 时间回拨保护 | 最后可信时间记为 2026-11-26，证书已于 2026-10-01 过期；把时钟拨回 2026-09-01 | 设备识别回拨、拒绝接受该时间状态、拒绝下载；另用确实过期的证书验证 TLS 直接拒绝（两个机制分别验证） |
 | T28 | 云端不可用但本地正常 | 让 check-in 服务器不可达，保持本地业务正常 | 不误停工、不误回滚；继续退避上报 |
 | T29 | init 挂死 / Agent 崩溃 | 在健康检查前冻结 init，或杀掉 Agent | 看门狗超时后复位，`bootcount` 增加 |
 | T30 | 密钥轮换与撤销 | 按轮换流程发双公钥版本，再撤销旧密钥 | 过渡期内新旧系统按策略验签；撤销后旧密钥包被拒 |
+| T31 | `fw_setenv` 事务中途失败 | 提交脚本里让第 2/3 个变量写入失败（容量不足/非法值） | 不得部分提交：要么全部生效，要么完全不变 |
+| T32 | R2 恢复低于安全下限的缓存 | 提交后下限高于缓存旧版本，走 R2 离线恢复 | 走「恢复上一确认版本」专用路径，签名/哈希一致才装，不下调下限，上报恢复事件 |
+| T33 | Recovery 自身连续复位 | recovery 初始化失败/挂死触发看门狗复位，反复多次 | `recovery_count` 持久化累计，达到 `recovery_limit` 转 rescue |
+| T34 | 确认后 data 迁移失败 | V2 已确认，迁移到 v2 中途失败 | 回退到旧副本并告警，主应用仍可用（Bootloader 不再自动切回） |
 
 ### 5.3 验收标准
 
@@ -1059,6 +1090,8 @@ Flash 预算示例（rootfs 300 MiB、boot 64 MiB）：A/B ≈ 300×2 + 64×2 + 
 - 新固件启动失败时，回滚在 `bootlimit + 1` 次启动内完成。
 - 回滚之后旧系统不仅可启动，还必须能用原有 data（N/N-1 兼容或从备份恢复）。
 - `confirmed` 只在确认状态落盘并回读成功后上报；上报失败进离线队列，不影响本地确认与清理。
+- 环境变量提交具有事务语义：预校验、任一行失败不 flush、全部成功才 flush（T31）。
+- 方案二 R2 能恢复低于当前安全下限的上一确认版本、且不下调下限（T32）；recovery 自身失败计数持久化、达到上限转 rescue（T33）。
 - 每个持久化边界都有确定性故障注入记录（5.1），并在真机上记录平台、介质、U-Boot/内核版本与 `release_id`。
 - 每次失败都能在服务端或设备日志里定位原因。
 
@@ -1070,13 +1103,13 @@ Flash 预算示例（rootfs 300 MiB、boot 64 MiB）：A/B ≈ 300×2 + 64×2 + 
 |---|---|---|
 | M1 | 打包工具、离线签名、静态通道；设备端用下载模块命令行手工走通「取清单 → 验签 → 下载」 | T2、T3、T4 通过 |
 | M2 | 发布清单解析与验签、OTA 代理（进程内调用下载模块），完成适用性判断与字段/路径校验 | T6、T7、T26、T27 通过 |
-| M3 | A/B 安装、启动脚本、确认与自动回滚、data 兼容 | T8、T9、T11、T17–T25、T29 通过 |
-| M4 | recovery 方案（可选；至少 R2） | T8、T12 通过 |
+| M3 | A/B 安装、启动脚本、确认与自动回滚、data 兼容 | T8、T9、T11、T15–T25、T29、T31 通过 |
+| M4 | recovery 方案（可选；至少 R2） | T8、T12、T32、T33、T34 通过；R2 离线恢复作为硬验收 |
 | M5 | check-in API、上报、灰度；按需加 MQTT | T28 通过；服务端能看到每台设备状态 |
 
 M1 不需要写任何设备端代码，就能验证发布端整条链路和下载模块的接入方式。
 
-**首版只交付 A/B。** M1–M3 是闭环的最小集；M3 的「通过」不是功能跑通，而是 5.1 的确定性故障注入在每个持久化边界都有记录。recovery（M4）解决的是「Flash 小、可接受停机」的另一类产品，不应与 A/B 同期开发：两套方案的状态机、测试面和 data 兼容策略都不同，同时做会把首版拖成半成品。灰度（M5）之前必须完成 M3 的故障注入，否则「掉电安全」只是设计推理，不是验证事实。
+**首版只交付 A/B。** M1–M3 是闭环的最小集；M3 的「通过」不是功能跑通，而是 5.1 的确定性故障注入在每个持久化边界都有记录。recovery（M4）解决的是「Flash 小、可接受停机」的另一类产品，不应与 A/B 同期开发：两套方案的状态机、测试面和 data 兼容策略都不同，同时做会把首版拖成半成品。灰度（M5）之前必须完成 M3 的故障注入，否则「掉电安全」只是设计推理，不是验证事实。多公钥轮换/撤销（T30）首版不强制：首版只预置一把出厂公钥，轮换是后续能力，实现后再把 T30 纳入对应里程碑验收。
 
 ---
 
@@ -1125,7 +1158,7 @@ M1 不需要写任何设备端代码，就能验证发布端整条链路和下�
 | `bootcount > bootlimit` 时改用 `altbootcmd` | U-Boot `include/bootcount.h`（`bootcount_error()`）、`common/autoboot.c` |
 | `upgrade_available=0` 时 `bootcount` 不加载、不保存，原生机制不会在正常运行中累积 | U-Boot `drivers/bootcount/bootcount_env.c`、`api/bootcount.rst` |
 | `bootlimit` 生效但 `altbootcmd` 未定义时停在交互提示符 | U-Boot `api/bootcount.rst` |
-| `fw_setenv -s` 批量脚本逐行改内存、最后只 `fw_env_flush` 一次 | U-Boot `tools/env/fw_env.c`（`fw_parse_script`）、`fw_env_main.c` |
+| `fw_setenv -s` 批量脚本逐行改内存、循环后仍调用 `fw_env_flush`（中途某行失败也可能把已成功行写入，需自行预校验） | U-Boot `tools/env/fw_env.c`（`fw_parse_script`）、`fw_env_main.c` |
 | 冗余环境开关 `CONFIG_ENV_REDUNDANT` | U-Boot `env/Kconfig` |
 | `extlinux.conf` 的 `append` 整体替换 `bootargs` 并展开变量 | U-Boot `pxe_utils.c` |
 
