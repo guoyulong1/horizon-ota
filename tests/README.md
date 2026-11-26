@@ -1,20 +1,35 @@
 # tests
 
-单元测试（CTest）与集成测试。
+单元测试（GoogleTest + CTest）与集成测试。
 
-## 单元测试（CTest）
+## 单元测试（CTest + GoogleTest）
 
-根目录 `cmake -S . -B build && cmake --build build` 后：
+根目录先拉第三方源码再构建（googletest 由根 `3rdparty/fetch.sh` 按固定标签拉取并校验 SHA-256；fsd 的 OpenSSL/curl 由 `fsd/3rdparty/fetch.sh` 负责）：
 
 ```bash
-cd build && ctest --output-on-failure
+./3rdparty/fetch.sh
+(cd fsd && ./3rdparty/fetch.sh)
+cmake -S . -B build
+cmake --build build
+ctest --test-dir build --output-on-failure
 ```
 
-| 测试 | 覆盖 |
-|---|---|
-| `pack_crypto` | pack 的 SHA-256 已知向量、文件哈希（OpenSSL 系统版） |
-| `verify_crypto` | 公钥十六进制解析、Ed25519 验签（签名现场生成） |
-| `fsd_self_test` | fsd 的 SHA-256/MD5 向量与清单解析 |
+一键：`./scripts/verify.sh`。`-DBUILD_TESTING=OFF` 可整体关掉单元测试。
+
+每个 `TEST` 用例都是一条独立的 ctest 条目（`gtest_discover_tests`）。只跑某一组：`ctest -R test_verify_manifest --output-on-failure`。
+
+| 测试目标 | ctest 前缀 | 覆盖 |
+|---|---|---|
+| `tests/unit/test_pack_crypto.cc` | `test_pack_crypto` | SHA-256 已知向量（FIPS 180-4）、文件哈希与读缓冲边界、嵌入 NUL 的二进制、Ed25519 签名往返（OpenSSL 系统版） |
+| `tests/unit/test_verify_crypto.cc` | `test_verify_crypto` | 公钥十六进制解析（大小写/非法输入）、Ed25519 验签（篡改/错钥/坏长度拒绝） |
+| `tests/unit/test_verify_manifest.cc` | `test_verify_manifest` | 发布清单 JSON 解析、可选字段缺省、必填缺失、components 形状；适用性判断的全部拒绝原因与空字段跳过语义 |
+| `tests/unit/test_verify_config.cc` | `test_verify_config` | 配置解析、缺省值、必填字段、文件缺失/坏 JSON |
+| `tests/unit/test_verify_state.cc` | `test_verify_state` | 状态持久化：文件缺失视为初始状态、原子写往返、父目录创建、坏 JSON |
+| `tests/unit/test_verify_agent.cc` | `test_verify_agent` | `RunOnce` 离线负路径：状态损坏、清单不可达时 error 状态落盘（完整 ②–⑦ 链路走集成测试） |
+| `tests/fsd/test_*.cc` | `test_fsd_*` | fsd 模块移植测试（text_util/status/url/sha256/md5/manifest/http_client/secure_downloader），守护 monorepo 内的 vendored 副本 |
+| （tests/CMakeLists.txt 注册） | `fsd_self_test` | fsd 命令行自检（SHA-256/MD5 向量、清单解析） |
+
+googletest 版本：v1.17.0（`3rdparty/fetch.sh` 固定标签 + SHA-256 校验）。
 
 ## 集成测试（`tests/integration/`）
 
@@ -29,12 +44,6 @@ tests/integration/m1-e2e.sh --bin-dir <dir>   # 用现成二进制
 ```
 
 运行环境：Linux（板载 / WSL2 / CI），需要 `openssl`、`python3`、`curl`，构建时另需 `cmake`、`g++`。
-
-## 状态
-
-- `run.sh`：在地平线 X3 板载实测通过（PASS=9 FAIL=0）。
-- `m1-e2e.sh`：在地平线 X3 板载实测通过（PASS=8 FAIL=0）。
-- CTest 单元测试：需在 Linux 环境跑一次 `ctest` 确认。
 
 ## 参考
 

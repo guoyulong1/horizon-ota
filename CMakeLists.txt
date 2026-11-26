@@ -22,5 +22,11 @@ add_subdirectory(fsd)
 add_subdirectory(verify)
 add_subdirectory(pack)
 
-enable_testing()
-add_subdirectory(tests)
+# 单元测试：GoogleTest + ctest。googletest 源码由根目录 3rdparty/fetch.sh
+# 按固定标签拉取；-DBUILD_TESTING=OFF 可整体关掉（设备端仍需 fsd 的
+# 3rdparty 才能构建）。
+option(BUILD_TESTING "Build unit tests (GoogleTest)" ON)
+if(BUILD_TESTING)
+  enable_testing()
+  add_subdirectory(tests)
+endif()

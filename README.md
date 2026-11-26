@@ -31,6 +31,16 @@ cmake --build build
 
 一键验证：`./fsd/scripts/verify.sh`（Linux 侧，WSL2 或板载）。
 
+## 快速开始（monorepo 聚合构建 + 单元测试）
+
+聚合构建 fsd + verify + pack，ctest 编排 GoogleTest 单元测试（每个 `TEST` 用例是独立 ctest 条目）：
+
+```bash
+./scripts/verify.sh
+```
+
+等价于：`./3rdparty/fetch.sh`（googletest v1.17.0，固定标签 + SHA-256 校验）→ `(cd fsd && ./3rdparty/fetch.sh)`（OpenSSL/curl，如缺）→ `cmake -S . -B build` → `cmake --build build` → `ctest --test-dir build --output-on-failure`。`-DBUILD_TESTING=OFF` 可整体关掉测试。测试项明细见 [tests/README.md](tests/README.md)。
+
 ## 落地路线
 
 见 [docs/OTA.md](docs/OTA.md) 第 6 章：
