@@ -160,8 +160,8 @@ bool Expect(bool condition, const char* name, int* failures) {
   return condition;
 }
 
-DeviceContext SelfTestDevice() {
-  DeviceContext device;
+ota::DeviceContext SelfTestDevice() {
+  ota::DeviceContext device;
   device.model = "demo-board";
   device.version_code = 10202;
   device.security_version_floor = 4;
@@ -183,32 +183,32 @@ int RunSelfTest() {
   if (Expect(SignEd25519(raw_private, manifest, &signature),
              "sign sample manifest", &failures)) {
     Expect(signature.size() == 64, "signature is 64 bytes", &failures);
-    Expect(VerifyEd25519(raw_public, manifest, signature),
+    Expect(ota::VerifyEd25519(raw_public, manifest, signature),
            "verify manifest signature", &failures);
 
     std::string tampered = manifest;
     tampered[0] = static_cast<char>(tampered[0] ^ 0x20);
-    Expect(!VerifyEd25519(raw_public, tampered, signature),
+    Expect(!ota::VerifyEd25519(raw_public, tampered, signature),
            "reject tampered manifest", &failures);
-    Expect(!VerifyEd25519(raw_public, manifest,
+    Expect(!ota::VerifyEd25519(raw_public, manifest,
                           signature.substr(0, signature.size() - 1)),
            "reject short signature", &failures);
-    Expect(!VerifyEd25519(std::string(32, '\0'), manifest, signature),
+    Expect(!ota::VerifyEd25519(std::string(32, '\0'), manifest, signature),
            "reject wrong public key", &failures);
   }
 
   const std::string public_hex = ToHex(raw_public);
   std::string parsed_public;
-  Expect(ParseHexPublicKey(public_hex, &parsed_public) &&
+  Expect(ota::ParseHexPublicKey(public_hex, &parsed_public) &&
              parsed_public == raw_public,
          "hex public key round trip", &failures);
-  Expect(!ParseHexPublicKey(public_hex.substr(0, public_hex.size() - 2),
+  Expect(!ota::ParseHexPublicKey(public_hex.substr(0, public_hex.size() - 2),
                             &parsed_public),
          "reject short hex public key", &failures);
 
-  Manifest parsed;
+  ota::Manifest parsed;
   std::string error;
-  if (Expect(ParseManifest(manifest, &parsed, &error),
+  if (Expect(ota::ParseManifest(manifest, &parsed, &error),
              "parse sample manifest", &failures)) {
     Expect(parsed.release_id == "self-test-0001" &&
                parsed.version_code == 10203 &&
@@ -217,35 +217,35 @@ int RunSelfTest() {
                parsed.components.size() == 1U &&
                parsed.components[0].name == "kernel",
            "parsed manifest fields", &failures);
-    Expect(CheckApplicability(parsed, SelfTestDevice()).accepted,
+    Expect(ota::CheckApplicability(parsed, SelfTestDevice()).accepted,
            "applicability accepted", &failures);
 
-    DeviceContext wrong_model = SelfTestDevice();
+    ota::DeviceContext wrong_model = SelfTestDevice();
     wrong_model.model = "other-board";
-    Expect(CheckApplicability(parsed, wrong_model).reason ==
-               RejectReason::kModelMismatch,
+    Expect(ota::CheckApplicability(parsed, wrong_model).reason ==
+               ota::RejectReason::kModelMismatch,
            "reject model mismatch", &failures);
 
-    DeviceContext rollback = SelfTestDevice();
+    ota::DeviceContext rollback = SelfTestDevice();
     rollback.security_version_floor = 6;
-    Expect(CheckApplicability(parsed, rollback).reason ==
-               RejectReason::kRollback,
+    Expect(ota::CheckApplicability(parsed, rollback).reason ==
+               ota::RejectReason::kRollback,
            "reject rollback", &failures);
 
-    DeviceContext not_newer = SelfTestDevice();
+    ota::DeviceContext not_newer = SelfTestDevice();
     not_newer.version_code = 10203;
-    Expect(CheckApplicability(parsed, not_newer).reason ==
-               RejectReason::kNotNewer,
+    Expect(ota::CheckApplicability(parsed, not_newer).reason ==
+               ota::RejectReason::kNotNewer,
            "reject not newer", &failures);
 
-    DeviceContext wrong_layout = SelfTestDevice();
+    ota::DeviceContext wrong_layout = SelfTestDevice();
     wrong_layout.layout = "recovery";
-    Expect(CheckApplicability(parsed, wrong_layout).reason ==
-               RejectReason::kLayoutUnsupported,
+    Expect(ota::CheckApplicability(parsed, wrong_layout).reason ==
+               ota::RejectReason::kLayoutUnsupported,
            "reject unsupported layout", &failures);
   }
 
-  Expect(!ParseManifest("{ not json", &parsed, &error),
+  Expect(!ota::ParseManifest("{ not json", &parsed, &error),
          "reject broken manifest json", &failures);
 
   if (failures == 0) {
@@ -286,7 +286,7 @@ int RunCheck(int argc, char** argv) {
     return 2;
   }
   std::string raw_public;
-  if (!ParseHexPublicKey(pubkey_hex, &raw_public)) {
+  if (!ota::ParseHexPublicKey(pubkey_hex, &raw_public)) {
     std::cerr << "ota-verify: --pubkey must be 64 hex digits\n";
     return 2;
   }
@@ -295,7 +295,7 @@ int RunCheck(int argc, char** argv) {
               << signature.size() << "\n";
     return 1;
   }
-  if (!VerifyEd25519(raw_public, manifest, signature)) {
+  if (!ota::VerifyEd25519(raw_public, manifest, signature)) {
     std::cerr << "ota-verify: manifest signature verification FAILED\n";
     return 1;
   }
