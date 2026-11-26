@@ -1,7 +1,7 @@
 // Copyright 2026 GuoYuLong. All rights reserved.
 // Author: GuoYuLong
 //
-// verify/state：OTA 代理持久状态。覆盖「文件不存在视为初始状态」、
+// agent/state：OTA 代理持久状态。覆盖「文件不存在视为初始状态」、
 // 原子写回读往返、父目录自动创建、坏 JSON 与空指针。
 
 #include "state.h"

@@ -1,6 +1,7 @@
 // OTA 代理状态机（M2：②–⑦，安装/确认/回滚为 M3 占位）。
-#ifndef OTA_VERIFY_AGENT_H_
-#define OTA_VERIFY_AGENT_H_
+// agent 是唯一的编排拥有者：验签与适用性判断调 verify 库，传输调 fsd。
+#ifndef OTA_AGENT_AGENT_H_
+#define OTA_AGENT_AGENT_H_
 
 #include "config.h"
 

@@ -6,59 +6,23 @@ on:
   pull_request:
 
 jobs:
-  fsd:
+  build-and-test:
     # 目标架构是 ARM64（地平线X3），用 GitHub 原生 ARM64 runner。
     # 若账号没有 ubuntu-24.04-arm，改成 ubuntu-latest（x86_64）仍能校验编译与自检。
     runs-on: ubuntu-24.04-arm
-    defaults:
-      run:
-        working-directory: fsd
     steps:
       - uses: actions/checkout@v4
 
-      - name: 缓存第三方源码（OpenSSL/curl）
-        uses: actions/cache@v4
-        with:
-          path: |
-            fsd/3rdparty/openssl
-            fsd/3rdparty/curl
-          key: fsd-3rdparty-${{ hashFiles('fsd/3rdparty/fetch.sh') }}
-
-      - name: 拉取第三方源码（缓存未命中时）
-        run: bash ./3rdparty/fetch.sh
-
-      - name: 配置并构建
-        run: |
-          cmake -S . -B build
-          cmake --build build
-
-      - name: 本地自检
-        run: ./build/firmware_secure_download --self-test
-
-  unit-tests:
-    # 聚合构建 + GoogleTest 单元测试（pack / verify / fsd 移植测试 + 自检）。
-    runs-on: ubuntu-24.04-arm
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: 缓存第三方源码（googletest + fsd 的 OpenSSL/curl）
+      - name: 缓存第三方源码（googletest/OpenSSL/curl）
         uses: actions/cache@v4
         with:
           path: |
             3rdparty/googletest
             fsd/3rdparty/openssl
             fsd/3rdparty/curl
-          key: unit-3rdparty-${{ hashFiles('3rdparty/fetch.sh', 'fsd/3rdparty/fetch.sh') }}
+          key: ota-3rdparty-${{ hashFiles('3rdparty/fetch.sh', 'fsd/3rdparty/fetch.sh') }}
 
-      - name: 拉取第三方源码（缓存未命中时）
-        run: |
-          bash ./3rdparty/fetch.sh
-          (cd fsd && bash ./3rdparty/fetch.sh)
-
-      - name: 配置并构建（聚合）
-        run: |
-          cmake -S . -B build
-          cmake --build build
-
-      - name: 单元测试（ctest + GoogleTest）
-        run: ctest --test-dir build --output-on-failure
+      # 一键验证：拉取第三方源码 → 聚合构建 fsd/verify/agent/pack → ctest
+      # （含 fsd_self_test 与 verify_self_test 两条 --self-test 底线）。
+      - name: 一键验证（./scripts/verify.sh）
+        run: ./scripts/verify.sh

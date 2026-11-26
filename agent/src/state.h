@@ -1,6 +1,6 @@
 // OTA 代理持久状态。原子写，掉电不写坏。
-#ifndef OTA_VERIFY_STATE_H_
-#define OTA_VERIFY_STATE_H_
+#ifndef OTA_AGENT_STATE_H_
+#define OTA_AGENT_STATE_H_
 
 #include <string>
 

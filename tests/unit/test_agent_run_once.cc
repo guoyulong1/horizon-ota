@@ -1,7 +1,7 @@
 // Copyright 2026 GuoYuLong. All rights reserved.
 // Author: GuoYuLong
 //
-// verify/agent：OTA 代理状态机的一个周期（RunOnce）。单元测试只覆盖
+// agent：OTA 代理状态机的一个周期（RunOnce）。单元测试只覆盖
 // 不依赖服务器的路径：状态文件损坏直接失败；清单不可达时把 error 阶段
 // 原子写入状态文件。完整 ②–⑦ 链路由 tests/integration/m1-e2e.sh 覆盖。
 

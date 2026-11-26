@@ -1,6 +1,6 @@
 // 用 fsd::SecureDownloader 逐组件下载到暂存区。
-#ifndef OTA_VERIFY_DOWNLOAD_H_
-#define OTA_VERIFY_DOWNLOAD_H_
+#ifndef OTA_AGENT_DOWNLOAD_H_
+#define OTA_AGENT_DOWNLOAD_H_
 
 #include "manifest.h"
 
