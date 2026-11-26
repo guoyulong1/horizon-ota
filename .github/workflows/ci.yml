@@ -25,7 +25,7 @@ jobs:
           key: fsd-3rdparty-${{ hashFiles('fsd/3rdparty/fetch.sh') }}
 
       - name: 拉取第三方源码（缓存未命中时）
-        run: ./3rdparty/fetch.sh
+        run: bash ./3rdparty/fetch.sh
 
       - name: 配置并构建
         run: |
@@ -52,8 +52,8 @@ jobs:
 
       - name: 拉取第三方源码（缓存未命中时）
         run: |
-          ./3rdparty/fetch.sh
-          (cd fsd && ./3rdparty/fetch.sh)
+          bash ./3rdparty/fetch.sh
+          (cd fsd && bash ./3rdparty/fetch.sh)
 
       - name: 配置并构建（聚合）
         run: |
