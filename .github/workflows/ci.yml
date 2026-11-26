@@ -1,4 +1,4 @@
-name: CI
+﻿name: CI
 
 on:
   push:
@@ -7,8 +7,8 @@ on:
 
 jobs:
   fsd:
-    # 目标架构是 ARM64（地平线X3），用 GitHub 原生 ARM64 runner；
-    # 若账号没有 ubuntu-24.04-arm，改成 ubuntu-latest（x86_64）仍能校验编译与自检。
+    # 鐩爣鏋舵瀯鏄?ARM64锛堝湴骞崇嚎X3锛夛紝鐢?GitHub 鍘熺敓 ARM64 runner锛?
+    # 鑻ヨ处鍙锋病鏈?ubuntu-24.04-arm锛屾敼鎴?ubuntu-latest锛坸86_64锛変粛鑳芥牎楠岀紪璇戜笌鑷銆?
     runs-on: ubuntu-24.04-arm
     defaults:
       run:
@@ -16,7 +16,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: 缓存第三方源码（OpenSSL/curl）
+      - name: 缂撳瓨绗笁鏂规簮鐮侊紙OpenSSL/curl锛?
         uses: actions/cache@v4
         with:
           path: |
@@ -27,12 +27,12 @@ jobs:
       - name: 拉取第三方源码（缓存未命中时）
         run: bash ./3rdparty/fetch.sh
 
-      - name: 配置并构建
+      - name: 閰嶇疆骞舵瀯寤?
         run: |
           cmake -S . -B build
           cmake --build build
 
-      - name: 本地自检
+      - name: 鏈湴鑷
         run: ./build/firmware_secure_download --self-test
 
   unit-tests:
