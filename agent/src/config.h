@@ -1,6 +1,6 @@
 // 设备端代理配置（JSON 文件），地址/密钥/CA 不写死。
-#ifndef OTA_VERIFY_CONFIG_H_
-#define OTA_VERIFY_CONFIG_H_
+#ifndef OTA_AGENT_CONFIG_H_
+#define OTA_AGENT_CONFIG_H_
 
 #include <string>
 #include <vector>

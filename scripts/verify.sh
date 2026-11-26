@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # verify.sh —— monorepo 一键本地验证（任何 Linux：WSL2/x86_64 或地平线X3 板载）
-# 聚合构建 fsd + verify + pack，ctest 编排 GoogleTest 单元测试。
+# 聚合构建 fsd + verify + agent + pack，ctest 编排 GoogleTest 单元测试。
 # 用法: ./scripts/verify.sh
 # 验证标准: ctest 全绿（含 fsd_self_test 这条 --self-test 底线）。
 set -euo pipefail
@@ -21,7 +21,7 @@ else
   echo "    已存在，跳过"
 fi
 
-echo "==> [3/4] 配置 + 构建（聚合：fsd/verify/pack）"
+echo "==> [3/4] 配置 + 构建（聚合：fsd/verify/agent/pack）"
 cmake -S . -B build
 cmake --build build
 

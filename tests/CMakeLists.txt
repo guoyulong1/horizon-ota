@@ -40,10 +40,17 @@ function(ota_add_pack_test name)
   target_link_libraries(test_${name} PRIVATE ota_pack_crypto)
 endfunction()
 
-# verify：设备端验签与代理核心（传递链接 fsd 与 nlohmann）。
+# verify：设备端验签库（验签 + 适用性，纯库；monorepo 内经 fsd_openssl
+# 复用 fsd 的 OpenSSL，不链接 fsd API）。
 function(ota_add_verify_test name)
   ota_add_gtest_test(${name} ${ARGN})
-  target_link_libraries(test_${name} PRIVATE ota_verify_core)
+  target_link_libraries(test_${name} PRIVATE ota_verify)
+endfunction()
+
+# agent：设备端 OTA 代理（状态机 + 编排，唯一同时传递链接 fsd 与 verify）。
+function(ota_add_agent_test name)
+  ota_add_gtest_test(${name} ${ARGN})
+  target_link_libraries(test_${name} PRIVATE ota_agent_core)
 endfunction()
 
 # fsd：设备端下载模块（monorepo vendored 副本，与独立 fsd 仓库同构）。
@@ -55,9 +62,10 @@ endfunction()
 ota_add_pack_test(pack_crypto unit/test_pack_crypto.cc)
 ota_add_verify_test(verify_crypto unit/test_verify_crypto.cc)
 ota_add_verify_test(verify_manifest unit/test_verify_manifest.cc)
-ota_add_verify_test(verify_config unit/test_verify_config.cc)
-ota_add_verify_test(verify_state unit/test_verify_state.cc)
-ota_add_verify_test(verify_agent unit/test_verify_agent.cc)
+
+ota_add_agent_test(agent_config unit/test_agent_config.cc)
+ota_add_agent_test(agent_state unit/test_agent_state.cc)
+ota_add_agent_test(agent_run_once unit/test_agent_run_once.cc)
 
 ota_add_fsd_test(fsd_text_util fsd/test_text_util.cc)
 ota_add_fsd_test(fsd_status fsd/test_status.cc)
@@ -68,7 +76,11 @@ ota_add_fsd_test(fsd_manifest fsd/test_manifest.cc)
 ota_add_fsd_test(fsd_http_client fsd/test_http_client.cc)
 ota_add_fsd_test(fsd_secure_downloader fsd/test_secure_downloader.cc)
 
-# fsd 命令行自检也纳入 ctest 编排，保持「--self-test 退出码 0」这条底线。
+# 命令行自检纳入 ctest 编排，保持「--self-test 退出码 0」这条底线。
 add_test(NAME fsd_self_test
          COMMAND firmware_secure_download --self-test)
 set_tests_properties(fsd_self_test PROPERTIES TIMEOUT 120)
+
+add_test(NAME verify_self_test
+         COMMAND ota-verify --self-test)
+set_tests_properties(verify_self_test PROPERTIES TIMEOUT 120)

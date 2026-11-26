@@ -1,7 +1,7 @@
 // Copyright 2026 GuoYuLong. All rights reserved.
 // Author: GuoYuLong
 //
-// verify/config：设备端代理配置（JSON 文件）。覆盖完整解析、缺省值、
+// agent/config：OTA 代理的设备配置（JSON 文件）。覆盖完整解析、缺省值、
 // 必填字段缺失、文件不存在与坏 JSON。
 
 #include "config.h"

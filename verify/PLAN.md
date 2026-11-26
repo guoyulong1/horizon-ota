@@ -1,5 +1,12 @@
 # M2 计划：verify → OTA 代理
 
+> **2026-11 更新（已被拆分取代）**：按 `docs/adr/0001`，本目录已收缩为纯验签库
+> （`crypto.*` / `manifest.*` + `ota-verify` CLI）；原计划中的编排部分
+> （config / fetch / download / state / agent / CLI）整体迁至 `agent/`。
+> 下文的模块结构与交付物以 `verify/README.md` 与 `agent/README.md` 为准，
+> 本文仅作 M2 历史记录。
+
+
 > 对应 `docs/OTA.md` 第 6 章 M2。目标：把 M1 的 `ota-fetch` 扩展成设备端 **OTA 代理**。**安装/确认/回滚的具体实现留给 M3**，但状态机的 phase 枚举在 M2 一次补全。
 
 ## 依赖与边界

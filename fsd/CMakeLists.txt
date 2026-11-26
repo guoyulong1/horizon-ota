@@ -165,6 +165,14 @@ target_link_libraries(fsd
 
 target_compile_options(fsd PRIVATE ${FSD_WARNINGS})
 
+# 只暴露 OpenSSL 头文件与 libcrypto 静态库的接口目标：monorepo 内 verify
+# 复用同一份 OpenSSL，而不引入对 fsd API 的依赖（verify 单独构建时改用
+# find_package(OpenSSL) 的系统 OpenSSL）。边界见 docs/adr/0001。
+add_library(fsd_openssl INTERFACE)
+add_dependencies(fsd_openssl openssl_ep)
+target_include_directories(fsd_openssl INTERFACE "${FSD_TP_INSTALL}/include")
+target_link_libraries(fsd_openssl INTERFACE "${FSD_OPENSSL_CRYPTO}")
+
 target_compile_definitions(fsd PUBLIC
   FSD_VERSION="${PROJECT_VERSION}")
 
