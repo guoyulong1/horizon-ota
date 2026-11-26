@@ -1,58 +1,54 @@
 # verify
 
-设备端 **OTA 代理**（M2）。链接 `fsd` 静态库，复用它做 HTTPS 传输与组件下载；不依赖 `pack`（发布端）。
+设备端**验签库**：发布清单验签（Ed25519）+ 适用性判断。纯函数、无状态、
+无网络/下载/状态编排，**不依赖 fsd API**。边界见 `docs/adr/0001`。
 
-## 能力
+## 职责（`docs/OTA.md` ③④）
 
-- ② 发现：静态通道轮询（M2）。**会被替换**：`docs/OTA.md` 第 3 章的 check-in / MQTT 方案后续替换这一层。
-- ③ 取发布清单 + 签名（`fsd::HttpClient`，无摘要）→ Ed25519 验签 → JSON 解析。
-- ④ 适用性判断（model / hardware_compat / layouts / security_version 下限 / min_version_code / version_code）。
-- ⑤ 逐组件下载（`fsd::SecureDownloader`，清单哈希 + 续传 + 进度回调）。
-- ⑦ 下载后复核（文件存在）。
-- 状态持久化 `state.json`（phase 完整：`idle/checking/fetching_manifest/downloading/downloaded/waiting/installing/pending_reboot/trial_boot/confirmed/rolled_back/error`，M3 的 phase 先占位）。
+- `VerifyEd25519` / `ParseHexPublicKey`：对清单**原始字节**的 Ed25519 验签
+  （OpenSSL EVP；摘要参数为空、一次喂完）。
+- `ParseManifest`：发布清单 JSON 解析 + schema 校验。
+- `CheckApplicability`：适用性判断（model / hardware_compat / layouts /
+  security_version 下限 / min_version_code / version_code），输出 `Decision`。
 
-安装 / 确认 / 回滚是 **M3**。
+**不做**：② 发现、⑤ 下载、⑧ 安装、状态机、上报——这些是 `agent/` 的职责。
 
-## 用法
+## 构建
+
+monorepo 聚合构建（`./scripts/verify.sh`）自动包含本模块，OpenSSL 复用 fsd
+构建的同一份（`fsd_openssl` 接口目标）。单独构建与 fsd 同构，需要系统 OpenSSL：
 
 ```bash
-ota-agent check [--once] --config <json> [--verbose]
-ota-agent status --config <json>
+cd verify
+cmake -S . -B build
+cmake --build build
+./build/ota-verify --self-test
 ```
 
-`--once`：跑一个周期后退出（用 cron / systemd timer 触发；常驻与退避在 M3）。
+## ota-verify 命令行
 
-## 配置（JSON）
+```bash
+# 内置自检（离线）：生成 Ed25519 密钥对 → 签名样例清单 → 验签往返
+# （篡改/坏长度/错钥拒绝）→ 清单解析与适用性用例。退出码 0 为通过。
+# ctest 底线条目：verify_self_test。
+ota-verify --self-test
 
-```json
-{
-  "base_url": "https://ota.example.com",
-  "model": "demo-board",
-  "channel": "beta",
-  "layout": "ab",
-  "staging_dir": "/data/ota/staging",
-  "state_file": "/data/ota/state.json",
-  "pubkey_hex": "<64 hex>",
-  "ca_file": "/etc/ota/ca.pem",
-  "version_code": 10202,
-  "hardware_compat": ["example,demo-board"],
-  "security_version_floor": 5,
-  "manifest_path": "releases/demo-board/1.2.3/<release_id>/manifest.json"
-}
+# 用给定公钥验一份清单的签名。
+# 退出码：0 通过；1 验签失败；2 用法/IO 错误。
+ota-verify check --manifest <manifest.json> --sig <manifest.json.sig> \
+    --pubkey <64hex>
 ```
-
-- `manifest_path` 为空时，按通道轮询 `channels/<channel>/<model>/manifest.json`。
-- 地址 / 密钥 / CA 走配置，不写死、不入库。
 
 ## 模块
 
 | 文件 | 职责 |
 |---|---|
-| `crypto.*` | Ed25519 验签（与 fsd 同一 OpenSSL） |
-| `manifest.*` | 清单解析 + schema 校验 + 适用性（纯函数，便于 gtest） |
-| `config.*` | 配置加载 |
-| `fetch.*` | `HttpClient` 取小文件 |
-| `download.*` | `SecureDownloader` 逐组件下载 + 进度 |
-| `state.*` | `state.json` 原子读写 |
-| `agent.*` | 状态机 `RunOnce` |
-| `ota_agent.cc` | CLI |
+| `src/crypto.*` | Ed25519 验签（OpenSSL EVP） |
+| `src/manifest.*` | 清单解析 + schema 校验 + 适用性（纯函数，便于 gtest） |
+| `src/ota_verify.cc` | `ota-verify` CLI 入口（--self-test / check） |
+
+## 测试
+
+- 单元测试：`tests/unit/test_verify_crypto.cc`、`tests/unit/test_verify_manifest.cc`
+- ctest 底线：`verify_self_test`（`ota-verify --self-test`）
+- M2 历史（编排部分已迁出）：见 `PLAN.md` 与 `docs/adr/0001`

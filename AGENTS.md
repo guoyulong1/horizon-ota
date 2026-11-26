@@ -18,8 +18,8 @@
 |---|---|---|
 | `fsd/` | 设备端安全下载模块 | 已实现 |
 | `pack/` | 打包 + 离线签名 | 待实现 |
-| `verify/` | 发布清单验签 + 适用性判断 | 待实现 |
-| `agent/` | OTA 代理 | 待实现 |
+| `verify/` | 发布清单验签 + 适用性判断（纯库，可单独构建） | 已实现 |
+| `agent/` | OTA 代理：状态机 + 编排（唯一链接 fsd + verify 的模块） | 实现中（M2 下载链路；安装/回滚 M3） |
 | `server/` | 发布服务 / 通道 | 待实现 |
 | `tests/` | 集成测试 | 待实现 |
 | `boot/` | U-Boot / 分区 / 安装 | 待实现 |
@@ -32,7 +32,7 @@
 
 ## 构建与验证
 
-### monorepo 一键验证（聚合：fsd + verify + pack + 单元测试）
+### monorepo 一键验证（聚合：fsd + verify + agent + pack + 单元测试）
 
 ```bash
 ./scripts/verify.sh
@@ -40,7 +40,7 @@
 
 等价于：`./3rdparty/fetch.sh`（googletest，首次拉取并校验 SHA-256）→ `(cd fsd && ./3rdparty/fetch.sh)`（OpenSSL/curl，如缺）→ `cmake -S . -B build` → `cmake --build build` → `ctest --test-dir build --output-on-failure`。
 
-单元测试基于 GoogleTest（每个 `TEST` 用例是独立 ctest 条目）；`-DBUILD_TESTING=OFF` 可整体关掉测试。**验证标准**：ctest 全绿（`fsd_self_test` 是其中一条底线）。改动涉及网络/TLS/IO/下载编排时，还需在真机跑一次真实下载验证。
+单元测试基于 GoogleTest（每个 `TEST` 用例是独立 ctest 条目）；`-DBUILD_TESTING=OFF` 可整体关掉测试。**验证标准**：ctest 全绿（`fsd_self_test` 与 `verify_self_test` 是其中两条 `--self-test` 底线）。改动涉及网络/TLS/IO/下载编排时，还需在真机跑一次真实下载验证。
 
 ### 下载模块（fsd）
 
@@ -53,6 +53,24 @@ cmake --build build
 ```
 
 一键：`./fsd/scripts/verify.sh`。
+
+### 验签库（verify，可单独构建）
+
+```bash
+cd verify
+cmake -S . -B build        # 用系统 OpenSSL（需 libssl-dev）；monorepo 内则复用 fsd 的
+cmake --build build
+./build/ota-verify --self-test
+```
+
+### OTA 代理（agent）
+
+```bash
+./scripts/verify.sh        # 随 monorepo 构建；产物 build/bin/ota-agent
+```
+
+agent 依赖 fsd / verify 的 CMake 目标，不支持单独配置构建（CMake 有防误用守卫）。
+agent 编排的后续工作**先写计划后执行**：见 `agent/PLAN.md`。
 
 ### 真机验证（板载）
 
@@ -92,3 +110,4 @@ ssh "$BOARD_HOST" "git clone https://github.com/guoyulong1/horizon-ota.git /home
 - `main` 保持可构建；功能走 feature 分支 + PR；CI 跑构建 + `--self-test`，merge 前必须绿。
 - `docs/OTA.md` 是 OTA 端到端作业书；模块行为与其冲突时，先对齐文档再改。
 - **模块独立、可单独部署**：发布端（`pack/`、`ota-sign`）跑在服务器/CI/离线签名机，设备端（`fsd/`、`verify/`、`agent/`）跑在固件本机，二者互不依赖；跨模块只通过发布清单 JSON 契约通信，**`pack` 不得引用 `fsd` 头文件**。
+- **模块边界不越界**（`docs/adr/0001`）：`verify` 只拥有「清单验签 + 适用性判断」，纯函数、无状态，不依赖 fsd API、不做下载/发现/安装编排；`agent` 是唯一的状态机与编排拥有者，也是唯一同时链接 `fsd` 与 `verify` 的模块；`fsd_openssl` 只共享 OpenSSL 产物，不得借它引用 fsd API。新能力先归入对应职责模块，接口不够表达时先扩接口再调用；跨模块的编排设计**先写计划（对应模块 `PLAN.md`）评审，再执行**。

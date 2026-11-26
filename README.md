@@ -8,10 +8,10 @@
 |---|---|---|
 | [`fsd/`](fsd/) | 设备端安全下载模块（HTTPS/TLS、断点续传、SHA-256 校验、原子发布） | 已实现 |
 | `pack/` | 打包 + 离线签名：产物 → 发布目录（manifest + sig） | 待实现 |
-| `verify/` | 发布清单解析 + Ed25519 验签 + 适用性判断 | 待实现 |
-| `agent/` | OTA 代理：状态机、发现、下载编排、安装、确认、上报 | 待实现 |
+| [`verify/`](verify/) | 发布清单验签（Ed25519）+ 适用性判断（纯库，可单独构建 + `ota-verify --self-test`） | 已实现 |
+| [`agent/`](agent/) | OTA 代理：状态机、发现、下载编排、安装、确认、上报（唯一链接 fsd + verify 的模块） | 实现中（M2 下载链路；安装/回滚 M3，先评审 `agent/PLAN.md`） |
 | `server/` | 静态发布服务配置 / 上传脚本 / 通道指针 | 待实现 |
-| `tests/` | 集成测试：本地 HTTPS + 篡改/断网/续传用例 | 待实现 |
+| `tests/` | 单元测试（GoogleTest/CTest）+ 集成测试 | 部分实现 |
 | `boot/` | U-Boot 启动脚本、分区布局、A/B 与 recovery | 待实现 |
 
 ## 文档
@@ -30,6 +30,19 @@ cmake --build build
 ```
 
 一键验证：`./fsd/scripts/verify.sh`（Linux 侧，WSL2 或板载）。
+
+## 快速开始（验签库 verify）
+
+```bash
+cd verify
+cmake -S . -B build
+cmake --build build
+./build/ota-verify --self-test
+```
+
+模块边界：`verify` 只拥有「清单验签 + 适用性判断」；编排归 `agent/`。见
+[docs/adr/0001](docs/adr/0001-verify-pure-lib-agent-orchestrator.md) 与
+[agent/PLAN.md](agent/PLAN.md)（agent 后续编排：先评审计划，再执行）。
 
 ## 快速开始（monorepo 聚合构建 + 单元测试）
 
